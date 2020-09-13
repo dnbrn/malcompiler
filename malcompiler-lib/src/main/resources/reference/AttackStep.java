@@ -28,6 +28,8 @@ public class AttackStep {
   private boolean explained = false;
   protected static Map<String, Double> ttcHashMap = new HashMap<>();
 
+  public boolean initiallyCompromised;
+
   public AttackStep() {
     this("Anonymous");
   }

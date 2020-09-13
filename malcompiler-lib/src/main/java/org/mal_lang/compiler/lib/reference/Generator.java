@@ -104,9 +104,28 @@ public class Generator extends JavaGenerator {
     }
     if (core) {
       _generateCore();
+      _generateCoverage();
     }
     _generateProfile();
     LOGGER.info(String.format("Created %d classes", lang.getAssets().size()));
+  }
+
+  private void _generateCoverage() throws IOException, CompilerException {
+    File outputFile = new File(output, "core/coverage");
+    outputFile.mkdirs();
+
+    List<String> fileNames = Arrays.asList("CoverageExtension", "ConsoleTarget", "JSONTarget");
+
+    for (String fileName : fileNames) {
+      String name = String.format("%s.java", fileName);
+      String resource = String.format("/reference/coverage/%s", name);
+      InputStream is = Generator.class.getResourceAsStream(resource);
+      if (is == null) {
+        throw error(String.format("Couldn't get resource %s", resource));
+      }
+      File dst = new File(outputFile, name);
+      Files.copy(is, dst.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    }
   }
 
   private void _generateCore() throws IOException, CompilerException {

@@ -106,7 +106,7 @@ public class TestReferenceGenerator extends JavaGeneratorTest {
     assertTrue(coreDir.exists(), String.format("%s does not exist", corePath));
     assertTrue(coreDir.isDirectory(), String.format("%s is not a directory", corePath));
     var coreFiles = coreDir.listFiles();
-    assertEquals(6, coreFiles.length, String.format("%s should contain 6 files", corePath));
+    assertEquals(7, coreFiles.length, String.format("%s should contain 7 files", corePath));
     var coreFilesList =
         List.of(
             "Asset.java",
@@ -120,6 +120,10 @@ public class TestReferenceGenerator extends JavaGeneratorTest {
       coreFilesMap.put(coreFile, Boolean.FALSE);
     }
     for (var coreFile : coreFiles) {
+      if (coreFile.isDirectory()) {
+        continue;
+      }
+
       var coreFileName = coreFile.getName();
       var coreFilePath = coreFile.getPath();
       assertTrue(
@@ -139,12 +143,51 @@ public class TestReferenceGenerator extends JavaGeneratorTest {
           entry.getValue(),
           String.format("File %s not found in %s", entry.getKey(), corePath));
     }
+
+    assertCoveragePresent(String.format("%s/core/", outDir));
   }
 
   private static void assertCoreNotPresent(String outDir) {
     var coreDir = new File(outDir, "core");
     var corePath = coreDir.getPath();
     assertFalse(coreDir.exists(), String.format("%s exists", corePath));
+  }
+
+  private static void assertCoveragePresent(String outCoreDir) {
+    File cDir = new File(outCoreDir, "coverage");
+    String coverageFilePath = cDir.getPath();
+
+    assertTrue(cDir.exists(), String.format("%s does not exist", coverageFilePath));
+    assertTrue(cDir.isDirectory(), String.format("%s is not a directory", coverageFilePath));
+
+    List<String> expectedFiles =
+        List.of("CoverageExtension.java", "ConsoleTarget.java", "JSONTarget.java");
+
+    var actualFiles = cDir.listFiles();
+    assertEquals(
+        expectedFiles.size(),
+        actualFiles.length,
+        String.format("Got %d files, expected %d", actualFiles.length, expectedFiles.size()));
+
+    Map<String, Boolean> coverageFileMap = new HashMap<>(expectedFiles.size());
+    for (String name : expectedFiles) {
+      coverageFileMap.put(name, Boolean.FALSE);
+    }
+
+    for (File f : actualFiles) {
+      String name = f.getName();
+      assertTrue(coverageFileMap.containsKey(name), String.format("Unexpected file %s", name));
+      assertFalse(coverageFileMap.get(name), String.format("Duplicate files %s", name));
+
+      coverageFileMap.put(name, Boolean.TRUE);
+
+      assertTrue(f.exists(), String.format("%s does not exist", name));
+      assertTrue(f.isFile(), String.format("%s is not a file", name));
+    }
+
+    for (var entry : coverageFileMap.entrySet()) {
+      assertTrue(entry.getValue(), String.format("%s does not exist", entry.getKey()));
+    }
   }
 
   @Test

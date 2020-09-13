@@ -31,6 +31,7 @@ public class Attacker {
 
   public void addAttackPoint(AttackStep attackPoint) {
     attackPoint.ttc = 0;
+	attackPoint.initiallyCompromised = false;
     activeAttackSteps.add(attackPoint);
   }
 
@@ -160,6 +161,9 @@ public class Attacker {
     AttackStep.ttcHashMap = readProfile(profile);
     debugPrint("debug attacking");
 
+	Set<AttackStep> startingPoints = new HashSet<>(activeAttackSteps.size());
+	startingPoints.addAll(activeAttackSteps);
+
     debugPrint(
         String.format(
             "The model contains %d assets and %d attack steps.",
@@ -188,5 +192,10 @@ public class Attacker {
       currentAttackStep.updateChildren(activeAttackSteps);
       activeAttackSteps.remove(currentAttackStep);
     }
+
+	// Set initially enabled steps
+	for (AttackStep step : startingPoints) {
+		step.initiallyCompromised = true;
+	}
   }
 }
