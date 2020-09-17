@@ -120,13 +120,14 @@ public class JSONTarget extends CoverageExtension.ExportableTarget {
 	protected JSONObject getSimulationResults() {
 		JSONObject obj = new JSONObject();
 
-		int defenseState = Defense.allDefenses.stream()
-			.filter(d -> d.isEnabled())
-			.collect(Collectors.toSet()).hashCode();
+		List<Integer> initiallyCompromised = AttackStep.allAttackSteps.stream()
+			.filter(s -> s.initiallyCompromised)
+			.map(s -> s.hashCode())
+			.collect(Collectors.toList());
 
 		obj.add("test", _testname);
 		obj.add("class", _testClassName);
-		obj.add("defenseState", defenseState);
+		obj.addList("initiallyCompromised", initiallyCompromised);
 		obj.addList("compromised",
 				AttackStep.allAttackSteps.stream().filter(s -> s.ttc != AttackStep.infinity).map(s -> {
 					JSONObject o = new JSONObject();
