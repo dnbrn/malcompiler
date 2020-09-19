@@ -285,13 +285,17 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		 */
 		public ModelData() {
 			nAssets = Asset.allAssets.size();
-			nAttackSteps = AttackStep.allAttackSteps.size();
-			nDefenses = Defense.allDefenses.size();
+			// nAttackSteps = AttackStep.allAttackSteps.size();
+			nAttackSteps = 0;
+			//nDefenses = Defense.allDefenses.size();
+			nDefenses = 0;
 			
 			// Generate model
 			for (Asset asset : Asset.allAssets) {
 				assetIds.add(asset.hashCode());
 				List<AttackStep> steps = getAttackSteps(asset);
+				nAttackSteps += steps.size();
+
 				Set<Integer> stepIds = new HashSet<>(steps.size());
 
 				// Add attack steps
@@ -300,7 +304,9 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				}
 
 				// Add defenses hidden attack steps
-				for (Defense def : getDefenses(asset)) {
+				List<Defense> assetDefenses = getDefenses(asset);
+				nDefenses += assetDefenses.size();
+				for (Defense def : assetDefenses) {
 					stepIds.add(processAttackStep(def.disable));
 				}
 

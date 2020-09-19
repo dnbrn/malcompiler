@@ -49,7 +49,7 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
 
     @Override
     public void beforeTestExecution(ExtensionContext context) {
-        if (!started && _globalTarget != null) {
+        if (!started && _globalTarget != null && _export == _globalTarget) {
             started = true;
 
             // Adds a root context hook (ensures that close is run

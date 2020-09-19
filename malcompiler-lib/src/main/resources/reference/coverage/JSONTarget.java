@@ -3,15 +3,15 @@ package core.coverage;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.lang.reflect.Field;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.Collection;
 import java.util.Map;
 import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.Optional;
+import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
 
 import org.junit.jupiter.api.extension.ExtensionContext;
 
@@ -20,323 +20,337 @@ import core.AttackStep;
 import core.AttackStepMin;
 import core.Defense;
 
-public class JSONTarget extends CoverageExtension.ExportableTarget {
-	private String _testname;
-	private String _testClassName;
-	private PrintStream _out;
-	private Map<ModelKey, Pair<List<JSONObject>, List<JSONObject>>> models = new HashMap<>();
+public class JSONTarget  extends CoverageExtension.ExportableTarget {
+	public Map<ModelKey, Model> models = new HashMap<>();
+	private PrintStream out = null;
 
-	private Optional<String> _filename = Optional.empty();
+	private String classname;
+	private String testname;
 
 	public JSONTarget() {
-		_out = null;
+		out = null;
 	}
 
 	public JSONTarget(String filename) {
-		_filename = Optional.ofNullable(filename);
-	}
-
-	public JSONTarget(PrintStream stream) {
-		_out = stream;
-		_out.print('[');
+		createFile(filename);
 	}
 
 	@Override
-	public void setup() {
-		_filename.ifPresent(filename -> {
-			try {
-				File file = new File(filename);
-				file.createNewFile();
+	public void setup() {}
 
-				_out = new PrintStream(file);
-				_out.print('[');
-			} catch (IOException e) {
-				_out = null;
-			}
-		});
-	}
-
+	/**
+	 * Stores metadata about the test such as the name of the current 
+	 * testclass and method.
+	 */	
 	@Override
 	public void preprocess(ExtensionContext ctx) {
-		if (_out == null) {
-			if (ctx.getParent().isPresent()) {
-				try {
-					String filename = ctx.getParent().get().getDisplayName() + ".json";
-					File file = new File(filename);
-					_out = new PrintStream(file);
-
-				} catch (IOException e) {
-					_out = System.out;
-				}
-			} else {
-				_out = System.out;
-			}
-
-			_out.print('[');
+		testname = ctx.getDisplayName();
+		testname = testname.substring(0, testname.indexOf('('));
+		classname = ctx.getParent().map(s -> s.getDisplayName()).orElse("Unknown");
+	
+		if (out == null) {
+			createFile(classname);
 		}
-
-		_testname = ctx.getDisplayName();
-		_testClassName = ctx.getParent().map(ExtensionContext::getDisplayName).orElse("Unknown");
-		_testname = _testname.substring(0, _testname.indexOf('('));
 	}
-
+	
 	@Override
 	public void processCoverage() {
-		Pair<List<JSONObject>, List<JSONObject>> mdl = getModel();
-		JSONObject simResults = getSimulationResults();
-
-		mdl.second.add(simResults);
+		ModelKey key = new ModelKey();
+		Model mdl = models.computeIfAbsent(key, s -> new Model());
+		mdl.storeCurrentState();
 	}
-
+	
 	@Override
 	public void export() {
 		boolean first = true;
 
-		for (Pair<List<JSONObject>, List<JSONObject>> mdl : models.values()) {
-			JSONObject jMdl = new JSONObject();
+		out.print('[');
 
-			jMdl.addList("model", mdl.first);
-			jMdl.addList("simulations", mdl.second);
-
+		for (Model mdl : models.values()) {
 			if (!first) {
-				_out.print(",");
+				out.print(',');
 			}
+
 			first = false;
 
-			_out.print(jMdl);
-
+			out.print(mdl);
 		}
 
-		_out.print(']');
-		_out.close();
+		out.print(']');
+		out.flush();
+		out.close();
 	}
-
+	
 	/**
-	 * Returns a json object containing the hashes of all compromised attack steps
-	 * in the current simulation.
-	 * 
-	 * @return A json object representation of the simulation results.
+	 * Creates the output file. Sets the printwriter (out) to
+	 * point to the newly created file.	
+	 *
+	 * @param filename of the output file	
 	 */
-	protected JSONObject getSimulationResults() {
-		JSONObject obj = new JSONObject();
-
-		List<Integer> initiallyCompromised = AttackStep.allAttackSteps.stream()
-			.filter(s -> s.initiallyCompromised)
-			.map(s -> s.hashCode())
-			.collect(Collectors.toList());
-
-		obj.add("test", _testname);
-		obj.add("class", _testClassName);
-		obj.addList("initiallyCompromised", initiallyCompromised);
-		obj.addList("compromised",
-				AttackStep.allAttackSteps.stream().filter(s -> s.ttc != AttackStep.infinity).map(s -> {
-					JSONObject o = new JSONObject();
-
-					o.add("id", s.hashCode());
-					o.add("ttc", s.ttc);
-
-					return o;
-				}).collect(Collectors.toList()));
-
-		obj.addList("activeDefenses", Defense.allDefenses.stream().filter(d -> d.isEnabled())
-				.map(d -> d.disable.hashCode()).collect(Collectors.toList()));
-
-		return obj;
-	}
-
-	/**
-	 * Returns a pair of json object containing the model description and
-	 * simulations. The first entry contains a json description of the threat model,
-	 * while the second entry contains a list of json descriptions of all attack
-	 * simulations run upon the model. Entries will be automatically generated for
-	 * new models.
-	 * 
-	 * @return A pair containing the threat model and simulation data.
-	 */
-	protected Pair<List<JSONObject>, List<JSONObject>> getModel() {
-		ModelKey key = new ModelKey(Asset.allAssets.hashCode(), AttackStep.allAttackSteps.hashCode(),
-				Defense.allDefenses.hashCode());
-
-		if (models.containsKey(key)) {
-			return models.get(key);
+	private void createFile(String filename) {
+		if (!filename.endsWith(".json")) {
+			filename = String.format("%s.json", filename);
 		}
 
-		Pair<List<JSONObject>, List<JSONObject>> mdl = new Pair<>(exportModel(), new LinkedList<JSONObject>());
-		models.put(key, mdl);
+		try {
+			File file = new File(filename);
+			file.createNewFile();
 
-		return mdl;
-	}
-
-	/**
-	 * Returns a list of json descriptions of all currently registered assets.
-	 * 
-	 * @return a list of json representation of all assets.
-	 */
-	private List<JSONObject> exportModel() {
-		return Asset.allAssets.parallelStream().map(asset -> new JSONObject(asset)).collect(Collectors.toList());
-	}
-
-	private class Pair<X, Y> {
-		public final X first;
-		public final Y second;
-
-		public Pair(X first, Y second) {
-			this.first = first;
-			this.second = second;
+			out = new PrintStream(file);
+		} catch (IOException e) {
+			System.err.println(String.format("Failed to create file with name %s.", filename));
+			e.printStackTrace();
 		}
 	}
 
-	/**
-	 * Class for exporting model and coverage data to JSON.
-	 */
-	private class JSONObject {
-		private StringBuilder sb;
+	private class Model {
+		List<Asset> assets = new ArrayList<>(Asset.allAssets);
+		List<AttackStep> attackSteps = new ArrayList<>(AttackStep.allAttackSteps);
+		List<Defense> defenses = new ArrayList<>(Defense.allDefenses);
 
-		public JSONObject() {
-			sb = new StringBuilder("{");
-		}
+		Map<Integer, Integer> stepAssetMap = new HashMap<>(AttackStep.allAttackSteps.size());
 
-		/**
-		 * Constructs a json representaiton of a mal asset inculding class name, asset
-		 * type, connected assets, asset object id and attack simualtion coverage.
-		 * 
-		 * @param a mal asset.
-		 */
-		public JSONObject(Asset a) {
-			this();
+		// Stores simulations
+		private Set<Sim> simulations = new HashSet<>();
 
-			add("name", a.name);
-			add("class", a.assetClassName);
-			add("hash", a.hashCode());
-
-			List<Integer> connections = a.getAllAssociatedAssets().parallelStream().map(e -> e.hashCode())
-					.collect(Collectors.toList());
-
-			addList("connections", connections);
-
-			// Compute coverage data
-			// Finds compromised fields, ttc
-			List<JSONObject> attackSteps = streamAssetAttackSteps(a.getClass()).map(f -> {
-				AttackStep step;
-				JSONObject obj = new JSONObject();
-
-				try {
-					step = ((AttackStep) f.get(a));
-				} catch (Exception e) {
-					step = new AttackStep("[ERR] invalid step");
-					step.ttc = 0;
-					System.err.println("Failed to fetch attack step!");
+		public Model() {
+			for (Asset asset : assets) {
+				for (AttackStep step : getAttackSteps(asset)) {
+					stepAssetMap.put(step.hashCode(), asset.hashCode());
 				}
 
-				obj.add("step", f.getName());
-				obj.add("type", AttackStepMin.class.isAssignableFrom(f.getType()) ? "|" : "&");
-
-				obj.add("hash", step.hashCode());
-
-				obj.addList("parents", Stream.concat(step.visitedParents.stream(), step.expectedParents.stream())
-						.map(p -> p.hashCode()).collect(Collectors.toList()));
-
-				return obj;
-			}).collect(Collectors.toList());
-
-			addList("steps", attackSteps);
-			addList("defense", streamAssetDefense(a.getClass()).map(f -> {
-				JSONObject obj = new JSONObject();
-				Defense def;
-
-				try {
-					def = ((Defense) f.get(a));
-				} catch (Exception e) {
-					def = new Defense("[ERR] Invalid defense");
-					def.disable = new AttackStep("INVALID (DUMMY)");
-					System.err.println("Failed to fetch defense.");
+				for (Defense def : getDefenses(asset)) {
+					stepAssetMap.put(def.disable.hashCode(), asset.hashCode());
 				}
-
-				obj.add("name", f.getName());
-				obj.add("hash", def.disable.hashCode());
-				obj.addList("parents", Stream.concat(def.disable.expectedParents.stream(), def.disable.visitedParents.stream())
-						.map(p -> p.hashCode())
-						.collect(Collectors.toList()));
-
-				return obj;
-			}).collect(Collectors.toList()));
-		}
-
-		public void add(String key, String val) {
-			addKey(key);
-
-			sb.append('\"').append(val).append('\"');
-		}
-
-		public void add(String key, double val) {
-			addKey(key);
-
-			sb.append(val);
-		}
-
-		public void add(String key, int val) {
-			addKey(key);
-
-			sb.append(val);
-		}
-
-		public void add(String key, boolean val) {
-			addKey(key);
-
-			sb.append(val ? "true" : "false");
-		}
-
-		public void add(String key, JSONObject obj) {
-			addKey(key);
-
-			sb.append(obj);
-		}
-
-		/**
-		 * Prints the content of the list directly (using toString)
-		 * 
-		 * @param key JSON key
-		 * @param lst list/JSON array data
-		 */
-		public <T> void addList(String key, List<T> lst) {
-			addKey(key);
-			sb.append(lst.toString());
-		}
-
-		/**
-		 * Prints the content of a list and adds citations around each element. Should
-		 * be used when the list contain strings.
-		 * 
-		 * @param key JSON key
-		 * @param lst list/JSON array data
-		 */
-		public void addStrList(String key, List<String> lst) {
-			addKey(key);
-			boolean first = true;
-
-			sb.append('[');
-			for (String s : lst) {
-				if (!first) {
-					sb.append(',');
-				}
-				first = false;
-
-				sb.append('\"').append(s).append('\"');
 			}
-
-			sb.append(']');
 		}
 
-		private void addKey(String key) {
-			if (sb.length() != 1)
-				sb.append(',');
-			sb.append("\"").append(key).append("\":");
-
+		/**
+		* Store the results of the current simulation. Does not 
+		* check whether the model is correct.		
+		*/
+		public void storeCurrentState() {
+			simulations.add(new Sim(classname, testname));
 		}
 
 		@Override
 		public String toString() {
-			return sb.append('}').toString();
+			JSONObject json = new JSONObject();
+			List<JSONObject> jAssets = new ArrayList<>(assets.size());
+
+			for (Asset a : assets) {
+				JSONObject jjson = new JSONObject();
+				Set<Integer> connectedParentSteps = new HashSet<>();
+
+				jjson.add("name", a.name);
+				jjson.add("class", a.assetClassName);
+				jjson.add("hash", a.hashCode());
+
+				// Note: getAllAssociatedAssets does not work for
+				// transitive relations.
+				List<AttackStep> steps = getAttackSteps(a);
+				List<JSONObject> jSteps = new ArrayList<>(steps.size());
+				for (AttackStep step : steps) {
+					JSONObject jObj = stepToJSON(step, connectedParentSteps);
+					jObj.add("step", step.attackStepName());
+
+					String type = step instanceof AttackStepMin ? "|" : "&";
+
+					jObj.add("type", type);
+					jSteps.add(jObj);
+				}
+				jjson.add("steps", jSteps);
+
+				// Add defenses
+				List<Defense> defs = getDefenses(a);
+				List<JSONObject> jDefenses = new ArrayList<>(defs.size());
+				for (Defense def : defs) {
+					JSONObject jObj = stepToJSON(def.disable, connectedParentSteps);
+					jObj.add("name", def.getClass().getSimpleName());
+
+					jDefenses.add(jObj);
+				}
+				jjson.add("defense", jDefenses);
+
+				connectedParentSteps.remove(a.hashCode());
+				jjson.add("stepConnections", connectedParentSteps);
+				jjson.add("connections", a.getAllAssociatedAssets().stream()
+						  .map(asset -> asset.hashCode())
+						  .collect(Collectors.toSet()));
+
+				jAssets.add(jjson);
+			}
+
+			json.add("model", jAssets);
+			json.add("simulations", simulations);
+
+			return json.toString();
+		}
+
+		private JSONObject stepToJSON(AttackStep step, Set<Integer> cParents) {
+			JSONObject jStep = new JSONObject();
+
+			Set<Integer> parents = Stream.concat(step.expectedParents.stream(),
+													step.visitedParents.stream())
+				.map(s -> s.hashCode())
+				.collect(Collectors.toSet());
+
+			cParents.addAll(parents.stream()
+							.map(s -> stepAssetMap.get(s))
+							.collect(Collectors.toSet()));
+
+			jStep.add("hash", step.hashCode());
+			jStep.add("parents", parents);
+
+			return jStep;
+		}
+		
+		/**
+		* Class for storing simulation results.
+		*/
+		public class Sim {
+			final Set<Integer> initiallyCompromised = new HashSet<>();
+			final Set<Integer> activeDefenses;
+			final Map<Integer, Double> compromised = new HashMap<>();
+
+			final String clsName;
+			final String mName;
+
+			public Sim(String clsName, String mName) {
+				this.clsName = clsName;
+				this.mName = mName;
+
+				List<AttackStep> compromised = AttackStep.allAttackSteps.stream()
+					.filter(s -> s.ttc != AttackStep.infinity)
+					.collect(Collectors.toList());
+
+				for (AttackStep step : compromised) {
+					int hash = step.hashCode();
+
+					if (step.initiallyCompromised) {
+						initiallyCompromised.add(hash);
+					}
+
+					this.compromised.put(hash, step.ttc);
+				}
+
+				activeDefenses = Defense.allDefenses.stream()
+					.filter(d -> d.defaultValue)
+					.map(d -> d.disable.hashCode())
+					.collect(Collectors.toSet());
+			}
+
+			@Override
+			public int hashCode() {
+				final int prime = 31;
+				int result = 1;
+				result = prime * result + getEnclosingInstance().hashCode();
+				result = prime * result + ((activeDefenses == null) ? 0 : activeDefenses.hashCode());
+				result = prime * result + ((compromised == null) ? 0 : compromised.hashCode());
+				result = prime * result + ((initiallyCompromised == null) ? 0 : initiallyCompromised.hashCode());
+				return result;
+			}
+
+			@Override
+			public boolean equals(Object obj) {
+				if (this == obj)
+					return true;
+				if (obj == null)
+					return false;
+				if (getClass() != obj.getClass())
+					return false;
+				Sim other = (Sim) obj;
+				if (!getEnclosingInstance().equals(other.getEnclosingInstance()))
+					return false;
+				if (activeDefenses == null) {
+					if (other.activeDefenses != null)
+						return false;
+				} else if (!activeDefenses.equals(other.activeDefenses))
+					return false;
+				if (compromised == null) {
+					if (other.compromised != null)
+						return false;
+				} else if (!compromised.equals(other.compromised))
+					return false;
+				if (initiallyCompromised == null) {
+					if (other.initiallyCompromised != null)
+						return false;
+				} else if (!initiallyCompromised.equals(other.initiallyCompromised))
+					return false;
+				return true;
+			}
+
+			private Model getEnclosingInstance() {
+				return Model.this;
+			}
+
+			public String toString() {
+				JSONObject json = new JSONObject();
+
+				json.add("test", mName);
+				json.add("class", clsName);
+				json.add("initiallyCompromised", initiallyCompromised);
+				json.add("activeDefenses", activeDefenses);
+
+				List<JSONObject> jComp = new ArrayList<>(compromised.size());
+				for (var entry : compromised.entrySet()) {
+					JSONObject jObj = new JSONObject();
+
+					jObj.add("id", entry.getKey());
+					jObj.add("ttc", entry.getValue());
+					
+					jComp.add(jObj);
+				}
+
+				json.add("compromised", jComp);
+				return json.toString();
+			}
+		}
+	}
+
+	private class JSONObject {
+		private StringBuilder sb = new StringBuilder();
+		private boolean first = true;
+
+		public JSONObject() {
+			sb.append('{');
+		}
+
+		private void addKey(String key) {
+			if (!first) {
+				sb.append(',');
+			}
+
+			first = false;
+
+			sb.append('"').append(key).append("\":");
+		}
+
+		public void add(String key, Number n) {
+			addKey(key);
+			sb.append(n);
+		}
+
+		public void add(String key, JSONObject o) {
+			addKey(key);
+			sb.append(o);
+		}
+
+		public void add(String key, String s) {
+			addKey(key);
+			sb.append('"').append(s).append('"');
+		}
+
+		public void add(String key, Collection<? extends Object> c) {
+			addKey(key);
+			sb.append(c.toString());
+		}
+
+		@Override
+		public String toString() {
+			StringBuilder resb = new StringBuilder(sb);
+
+			return resb.append('}').toString();
 		}
 	}
 }
