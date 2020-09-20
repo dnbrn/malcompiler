@@ -1,5 +1,7 @@
 package core.coverage;
 
+import java.math.BigInteger;
+import java.math.BigDecimal;
 import java.io.PrintStream;
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -150,7 +152,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					CoverageData cd = computeLocal(model, sgCompromised);
 					printCoverage(model, cd);
 					printDefenseCoverage(model, coveredDefStates);
-					System.out.println("");
+					System.out.println();
 				}
 			}
 
@@ -171,7 +173,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					.collect(Collectors.toList()).size();
 
 				printCoverage(model, cd);
-				printDefenseCoverage(model, coveredDefStates);
+				printDefenseCoverage(model, coveredDefStates, model.groups.size());
 
 				id++;
 			}
@@ -237,13 +239,27 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	}
 
 	/**
+	 * Prints the defense coverage (t = 1).
+	 *
+	 * @param m threat model.
+	 * @param coveredState number of covered states.
+	 */
+	protected void printDefenseCoverage(ModelData m, int covered) {
+		printDefenseCoverage(m, covered, 1);
+	}
+
+	/**
 	 * Prints the defense coverage.
 	 *
 	 * @param m threat model.
 	 * @param coveredState number of covered states.
 	 */	
-	protected void printDefenseCoverage(ModelData m, int coveredStates) {
-		_out.println(String.format("\t%15s [%d/2^%d] %f", "Defense states", coveredStates, m.nDefenses, coveredStates / Math.pow(2, m.nDefenses)));
+	protected void printDefenseCoverage(ModelData m, int coveredStates, int t) {
+		int SCALE = 6;
+		BigDecimal numerator = new BigDecimal(BigInteger.valueOf(coveredStates), SCALE);
+		BigDecimal denominator = new BigDecimal(BigInteger.valueOf(2), SCALE).pow(m.nDefenses).multiply(BigDecimal.valueOf(t));
+
+		_out.println(String.format("\t%15s [%d/(%d * 2^%d)] %s", "Defense states", coveredStates, t, m.nDefenses, numerator.divide(denominator).toString()));
 	}
 	
 	protected void print(String coverageType, int nCompromised, int nTotal) {
