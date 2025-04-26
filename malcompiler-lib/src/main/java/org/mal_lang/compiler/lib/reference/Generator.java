@@ -114,7 +114,7 @@ public class Generator extends JavaGenerator {
     File outputFile = new File(output, "core/coverage");
     outputFile.mkdirs();
 
-    List<String> fileNames = Arrays.asList("CoverageExtension", "ConsoleTarget", "JSONTarget");
+    List<String> fileNames = Arrays.asList("CoverageExtension", "ConsoleTarget", "JSONTarget", "LanguageModel");
 
     for (String fileName : fileNames) {
       String name = String.format("%s.java", fileName);
