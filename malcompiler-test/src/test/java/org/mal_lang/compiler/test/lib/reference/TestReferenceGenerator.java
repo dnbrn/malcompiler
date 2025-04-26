@@ -161,7 +161,11 @@ public class TestReferenceGenerator extends JavaGeneratorTest {
     assertTrue(cDir.isDirectory(), String.format("%s is not a directory", coverageFilePath));
 
     List<String> expectedFiles =
-        List.of("CoverageExtension.java", "ConsoleTarget.java", "JSONTarget.java");
+        List.of(
+            "CoverageExtension.java",
+            "ConsoleTarget.java",
+            "JSONTarget.java",
+            "LanguageModel.java");
 
     var actualFiles = cDir.listFiles();
     assertEquals(
