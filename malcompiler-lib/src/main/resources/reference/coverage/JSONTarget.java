@@ -20,6 +20,9 @@ import core.AttackStep;
 import core.AttackStepMin;
 import core.Defense;
 
+// TODO
+import java.lang.reflect.Field;
+
 public class JSONTarget  extends CoverageExtension.ExportableTarget {
 	public Map<ModelKey, Model> models = new HashMap<>();
 	private PrintStream out = null;
@@ -35,8 +38,54 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 		createFile(filename);
 	}
 
+	// TODO
+	// storing all asset types, attack steps and defences
+	private Set<String> allAssetTypeNamesString = new HashSet<>();
+	private Set<String> allAttackStepsFromDSL = new HashSet<>();
+	private Set<String> allDefensesFromDSL = new HashSet<>();
+
+	// TODO
+	// storing language model
+	//private LanguageModel languageModel;
+
 	@Override
-	public void setup() {}
+	public void setup() {
+		// TODO
+		// receive all asset types from the DSL
+		// executed one time before all tests
+		// TODO
+		// packageName currently saved in CoverageExtension.java
+		// -> check how to get automatically
+		// TODO
+		// check why this is executed twice
+		Set<Class<? extends Asset>> assetTypes = getAllAssetTypesFromDSL();
+		allAssetTypeNamesString = assetTypes.stream()
+				.map(Class::getSimpleName)
+				.collect(Collectors.toSet());
+
+		// TODO
+		// receive all attack steps and all defences from DSL
+		for (Class<? extends Asset> assetClass : assetTypes) {
+			streamAssetAttackSteps(assetClass).forEach(f -> {
+				allAttackStepsFromDSL.add(assetClass.getSimpleName() + "." + f.getName());
+			});
+			streamAssetDefense(assetClass).forEach(f -> {
+				allDefensesFromDSL.add(assetClass.getSimpleName() + "." + f.getName());
+			});
+		}
+
+		// TOOO print debug
+		//System.out.println("Attack Steps:");
+		//System.out.println(allAttackStepsFromDSL);
+
+		// TODO test later with defence in mal specification
+		//System.out.println("Defences:");
+		//System.out.println(allDefensesFromDSL);
+
+		// TODO
+		// create Language Model
+		//languageModel = new LanguageModel();
+	}
 
 	/**
 	 * Stores metadata about the test such as the name of the current 
@@ -110,6 +159,17 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 		Map<Integer, Integer> stepAssetMap = new HashMap<>(AttackStep.allAttackSteps.size());
 
+		// TODO
+		// untested asset types
+		Set<String> usedAssetTypes = new HashSet<>();
+		Set<String> untestedAssetTypes = new HashSet<>();
+		// attacksteps
+		Set<String> usedAttackSteps = new HashSet<>();
+		Set<String> untestedAttackSteps = new HashSet<>();
+		// defences
+		Set<String> usedDefenses = new HashSet<>();
+		Set<String> untestedDefenses = new HashSet<>();
+
 		// Stores simulations
 		private Set<Sim> simulations = new HashSet<>();
 
@@ -131,6 +191,61 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 		*/
 		public void storeCurrentState() {
 			simulations.add(new Sim(classname, testname));
+
+			// TODO calculate untested assets
+			usedAssetTypes = assets.stream()
+					.map(a -> a.getClass().getSimpleName())
+					.collect(Collectors.toSet());
+			// TODO
+			untestedAssetTypes = new HashSet<>(allAssetTypeNamesString);
+			untestedAssetTypes.removeAll(usedAssetTypes);
+
+			// TODO get used attack steps
+			// TODO get used defences
+			for (Asset asset : assets) {
+				String assetClass = asset.getClass().getSimpleName();
+
+				for (AttackStep step : getAttackSteps(asset)) {
+					// TODO check later if this condition really make sence
+					if (step.ttc != AttackStep.infinity) {
+						String name = assetClass + "." + getFieldName(asset, step);
+						usedAttackSteps.add(name);
+					}
+				}
+
+				for (Defense def : getDefenses(asset)) {
+					if (def.isEnabled()) {
+						String name = assetClass + "." + getFieldName(asset, def);
+
+						usedDefenses.add(name);
+					}
+				}
+			}
+
+			// TODO calculate untested attack steps
+			untestedAttackSteps = new HashSet<>(allAttackStepsFromDSL);
+			untestedAttackSteps.removeAll(usedAttackSteps);
+			// TODO calculate untested defences
+			untestedDefenses = new HashSet<>(allDefensesFromDSL);
+			untestedDefenses.removeAll(usedDefenses);
+
+		}
+
+		/**
+		 * helper function to get TODO
+		 * @param asset
+		 * @param value
+		 * @return
+		 */
+		private String getFieldName(Asset asset, Object value) {
+			for (Field field : asset.getClass().getFields()) {
+				try {
+					if (field.get(asset) == value) {
+						return field.getName();
+					}
+				} catch (IllegalAccessException ignored) {}
+			}
+			return "unknown";
 		}
 
 		@Override
@@ -183,6 +298,21 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 			json.add("model", jAssets);
 			json.add("simulations", simulations);
+
+			// TODO add untested assets
+			json.add("untestedAssetTypes", untestedAssetTypes);
+
+			// TODO
+			// debug
+			//System.out.println("Untested asset types:");
+			//for (String asset : untestedAssetTypes) {
+			//	System.out.println(asset + " (" + asset.getClass().getName() + ")");
+			//}
+
+			// TODO add untested attack steps
+			json.add("untestedAttackSteps", untestedAttackSteps);
+			// TODO add untested defences
+			json.add("untestedDefenses", untestedDefenses);
 
 			return json.toString();
 		}
@@ -343,7 +473,27 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 		public void add(String key, Collection<? extends Object> c) {
 			addKey(key);
-			sb.append(c.toString());
+			//sb.append(c.toString());
+
+			// TODO changed to correctly format unsued asset names as strings
+			sb.append('[');
+			boolean firstItem = true;
+
+			for (Object item : c) {
+				if (!firstItem) {
+					sb.append(',');
+				}
+				if (item instanceof String) {
+					sb.append('"').append(item).append('"');
+				} else if (item instanceof JSONObject) {
+					sb.append(item.toString());  // will be properly enclosed
+				} else {
+					sb.append(item);
+				}
+				firstItem = false;
+			}
+
+			sb.append(']');
 		}
 
 		@Override

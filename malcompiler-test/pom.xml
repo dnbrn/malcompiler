@@ -84,6 +84,21 @@ limitations under the License.
       <artifactId>malcompiler-cli</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>org.reflections</groupId>
+      <artifactId>reflections</artifactId>
+      <version>0.10.2</version>
+    </dependency>
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy</artifactId>
+      <version>1.12.20</version>
+    </dependency>
+    <dependency>
+      <groupId>org.javassist</groupId>
+      <artifactId>javassist</artifactId>
+      <version>3.29.2-GA</version>
+    </dependency>
   </dependencies>
 
   <build>

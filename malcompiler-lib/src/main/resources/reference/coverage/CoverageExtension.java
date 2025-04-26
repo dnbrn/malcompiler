@@ -1,5 +1,6 @@
 package core.coverage;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -16,6 +17,14 @@ import core.Defense;
 
 import static org.junit.jupiter.api.extension.ExtensionContext.Namespace.GLOBAL;
 
+// TODO reflections
+import org.reflections.Reflections;
+import org.reflections.scanners.Scanners;
+import org.reflections.util.ConfigurationBuilder;
+import java.lang.reflect.Field;
+import java.lang.ClassLoader;
+import java.util.Set;
+
 public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTestExecutionCallback, ExtensionContext.Store.CloseableResource {
     protected ExportableTarget _export;
 
@@ -23,6 +32,10 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
     private static boolean started;
 
 	private boolean _initLocal;
+
+	// TODO
+	// how to get this string automatically
+	public static String packageName = "org.mal_lang.examplelang.test";
     
     /**
      * Initialize the coverage extension to use the global export
@@ -108,6 +121,20 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
         // Called when all scheduled tests have been executed.
         public abstract void export();
 
+		/**
+		 * Infer package name (package org.mal_lang.examplelang.test;).
+		 * This is where all of the generated assets are placed.
+		 *
+		 * @param ctx JUnit ExtensionContext
+		 * @return the inferred package for the DSL assets
+		 */
+		/*
+		TODO
+		protected String inferPackageName(ExtensionContext ctx) {
+			return ctx.getRequiredTestClass().getPackageName();
+		}
+		 */
+
         /**
          * Returns a stream of all attack steps classes present 
          * in an asset class.
@@ -177,6 +204,47 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
 					}).filter(d -> d != null)
 				.collect(Collectors.toList());
 		 }
+
+		/**
+		 * Returns all possible asset types defined in the
+		 * specification of the MAL-based DSL.
+		 *
+		 * @param packageName name of the whole package
+		 * @return all assets defined in DSL
+		 */
+
+		// TODO cache to not compute every time new
+		protected Set<Class<? extends Asset>> getAllAssetTypesFromDSL() {
+			Set<Class<? extends Asset>> assetTypes = new HashSet<>();
+			// TODO try to get package name
+			// String packageName
+
+			// TODO
+			ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+
+			Reflections reflections = new Reflections(new ConfigurationBuilder()
+					.forPackage(packageName, classLoader)
+					.addScanners(Scanners.SubTypes) // needed for class hierarchy discovery
+			);
+
+			assetTypes = reflections.getSubTypesOf(Asset.class); // All classes extending Asset
+
+			// TODO debug information
+			// System.out.println("Discovered DSL assets: " + assetTypes);
+			return assetTypes;
+
+
+			/*
+			try {
+				// TODO platzhalter host
+				// automate later -> iterate through all
+				assetTypes.add(Class.forName(packageName + ".Host").asSubclass(Asset.class));
+			} catch (ClassNotFoundException e) {
+				System.err.println("Assets could not be loaded from " + packageName);
+				e.printStackTrace();
+			}
+			 */
+		}
 		
 		/**
 		 * Class used for indexing simulated models.
