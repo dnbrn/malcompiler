@@ -20,10 +20,8 @@ import core.AttackStep;
 import core.AttackStepMin;
 import core.Defense;
 
-// TODO
 import core.coverage.LanguageModel;
 
-// TODO
 import java.lang.reflect.Field;
 
 public class JSONTarget  extends CoverageExtension.ExportableTarget {
@@ -41,7 +39,6 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 		createFile(filename);
 	}
 
-	// TODO
 	// storing language model
 	private LanguageModel languageModel;
 
@@ -240,7 +237,7 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 		}
 
 		/**
-		 * helper function to get TODO
+		 * helper function to get field name
 		 * @param asset
 		 * @param value
 		 * @return
@@ -499,9 +496,8 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 		public void add(String key, Collection<? extends Object> c) {
 			addKey(key);
-			//sb.append(c.toString());
 
-			// TODO changed to correctly format unsued asset names as strings
+			// changed to correctly formated unsued asset names as strings
 			sb.append('[');
 			boolean firstItem = true;
 
