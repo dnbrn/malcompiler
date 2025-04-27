@@ -31,7 +31,13 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	protected final boolean _printModel;
 
 	private Map<ModelKey, ModelData> models = new HashMap<>();
-	
+
+	// variable to collect warnings in
+	private List<String> warnings = new ArrayList<>();
+
+	// indicator when to print warnings
+	private boolean generateWarnings = false;
+
 	public ConsoleTarget() {
 		this(true, true, true);
 	}
@@ -114,9 +120,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				Set<Integer> sgCompromised = new HashSet<>(model.nAttackSteps);
 				List<String> sgTestNames = new ArrayList<>();
 
-				System.out.println("###################################");
-				System.out.println("##        Test Coverage          ##");
-				System.out.println("###################################");
+				printHeading("Test Coverage");
 
 				// For every test 
 				for (Simulation sim : group) {
@@ -138,9 +142,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 				// Print simulation group results
 				if (_printGroups) {
-					System.out.println("###################################");
-					System.out.println("##      Simulation Group         ##");
-					System.out.println("###################################");
+					printHeading("Simulation Group");
 					System.out.println("Tests: " + sgTestNames);
 
 					// #defense states covered.
@@ -156,9 +158,10 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				}
 			}
 
-			System.out.println("###################################");
-			System.out.println("##       Model Coverage          ##");
-			System.out.println("###################################");
+			printHeading("Model Coverage");
+
+			// enable printing warnings for model coverage
+			generateWarnings = true;
 
 			// Print model results
 			if (_printModel) {
@@ -176,6 +179,16 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				printDefenseCoverage(model, coveredDefStates, model.groups.size());
 
 				id++;
+			}
+
+			// revert to default of not printing warnings
+			generateWarnings = false;
+		}
+
+		if (!warnings.isEmpty()) {
+			printHeading("Warnings");
+			for (String warning : warnings) {
+				_out.println("\t⚠️ " + warning);
 			}
 		}
 	}
@@ -226,6 +239,39 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	}
 
 	/**
+	 * helper function to print headings nicely
+	 * @param title of the current section
+	 */
+	private void printHeading(String title) {
+		// total width of the line (including ##)
+		int totalWidth = 53;
+
+		int titleLength = title.length();
+		// -4 for the two "##" and two spaces
+		int padding = (totalWidth - 4 - titleLength) / 2;
+
+		StringBuilder sb = new StringBuilder();
+		sb.append("##");
+
+		for (int i = 0; i < padding; i++) {
+			sb.append(' ');
+		}
+
+		sb.append(title);
+
+		while (sb.length() < totalWidth - 2) {
+			sb.append(' ');
+		}
+
+		sb.append("##");
+
+		_out.println("#####################################################");
+		_out.println(sb.toString());
+		_out.println("#####################################################");
+	}
+
+
+	/**
 	 * Prints coverage results to stdout.
 	 *
 	 * @param md threat model
@@ -256,18 +302,60 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	 */	
 	protected void printDefenseCoverage(ModelData m, int coveredStates, int t) {
 		int SCALE = 6;
-		BigDecimal numerator = new BigDecimal(BigInteger.valueOf(coveredStates), SCALE);
-		BigDecimal denominator = new BigDecimal(BigInteger.valueOf(2), SCALE).pow(m.nDefenses).multiply(BigDecimal.valueOf(t));
 
-		_out.println(String.format("\t%15s [%d/(%d * 2^%d)] %s", "Defense states", coveredStates, t, m.nDefenses, numerator.divide(denominator).toString()));
+		// in case no defences exist
+		if (m.nDefenses == 0) {
+			_out.println(String.format("\t%-16s [%5d/(%d * 2^%d)] -> 100.00%%",
+					"Defence states", coveredStates, t, m.nDefenses));
+			return;
+		}
+
+		BigDecimal numerator = new BigDecimal(BigInteger.valueOf(coveredStates), SCALE);
+		BigDecimal denominator = new BigDecimal(BigInteger.valueOf(2), SCALE).pow(m.nDefenses)
+				.multiply(BigDecimal.valueOf(t));
+
+		if (denominator.compareTo(BigDecimal.ZERO) > 0) {
+			BigDecimal fraction = numerator.divide(denominator, SCALE, BigDecimal.ROUND_HALF_UP);
+			BigDecimal percentage = fraction.multiply(BigDecimal.valueOf(100));
+
+			_out.println(String.format("\t%-16s [%7d/(%d * 2^%d)] -> %6.2f%%", "Defence states", coveredStates,
+					t, m.nDefenses, percentage.setScale(2, BigDecimal.ROUND_HALF_UP).doubleValue()));
+
+			// generate warnings
+			// TODO
+			// potentially adjust percentage.doubleValue() to percentage.setScale(2, BigDecimal.ROUND_HALF_UP).doubleValue()
+			if (generateWarnings && percentage.doubleValue() < 99.99) {
+				warnings.add(String.format("Defence states coverage is only %.2f%%",
+						percentage.doubleValue()));
+			}
+		} else {
+			_out.println(String.format("\t%-20s TOTAL = 0", "Defence states"));
+		}
 	}
-	
+
+	/**
+	 * helper function for printing
+	 *
+	 * @param coverageType
+	 * @param nCompromised
+	 * @param nTotal
+	 */
 	protected void print(String coverageType, int nCompromised, int nTotal) {
 		if (nTotal > 0) {
-			_out.println(String.format("\t%15s [%d/%d] %f", coverageType, nCompromised, nTotal,
-					(double) nCompromised / nTotal));
+			double fraction = (double) nCompromised / nTotal;
+			double percent = fraction * 100.0;
+
+			// fixed output sizes
+			_out.println(String.format("\t%-16s [%7d/%7d] -> %6.2f%%", coverageType, nCompromised, nTotal, percent));
+
+			// generate warnings
+			// TODO
+			//potentially adjust wording
+			if (generateWarnings && percent < 99.99) {
+				warnings.add(String.format("%s coverage is only %.2f%%", coverageType, percent));
+			}
 		} else {
-			_out.println(coverageType + " TOTAL = 0");
+			_out.println(String.format("\t%-20s TOTAL = 0", coverageType));
 		}
 	}
 	
