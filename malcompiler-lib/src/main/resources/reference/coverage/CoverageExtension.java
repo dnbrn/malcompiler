@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.extension.ExtensionContext.Namespace.GLOBAL;
 import org.reflections.Reflections;
 import org.reflections.scanners.Scanners;
 import org.reflections.util.ConfigurationBuilder;
-import java.lang.reflect.Field;
 import java.lang.ClassLoader;
 import java.util.Set;
 
@@ -33,9 +32,8 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
 
 	private boolean _initLocal;
 
-	// TODO
-	// how to get this string automatically
-	public static String packageName = "org.mal_lang.examplelang.test";
+	// automatically inferred in JSONTarget with extension context
+	public static String packageName;
     
     /**
      * Initialize the coverage extension to use the global export
@@ -120,20 +118,6 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
         public abstract void processCoverage();
         // Called when all scheduled tests have been executed.
         public abstract void export();
-
-		/**
-		 * Infer package name (package org.mal_lang.examplelang.test;).
-		 * This is where all of the generated assets are placed.
-		 *
-		 * @param ctx JUnit ExtensionContext
-		 * @return the inferred package for the DSL assets
-		 */
-		/*
-		TODO
-		protected String inferPackageName(ExtensionContext ctx) {
-			return ctx.getRequiredTestClass().getPackageName();
-		}
-		 */
 
         /**
          * Returns a stream of all attack steps classes present 

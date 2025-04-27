@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.TreeSet;
 
 import org.junit.jupiter.api.extension.ExtensionContext;
 
@@ -42,40 +43,13 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 	// storing language model
 	private LanguageModel languageModel;
 
+	// storing all attack steps and defences for the language model
+	private Set<String> allAttackSteps = new HashSet<>();
+	private Set<String> allDefenses = new HashSet<>();
+
 	@Override
 	public void setup() {
-		// TODO
-		// packageName currently saved in CoverageExtension.java
-		// -> check how to get automatically
-		// TODO
-		// check why setup seeminlgy executed twice
 
-		// extract all asset types from the DSL
-		// executed one time before all tests
-		Set<Class<? extends Asset>> assetTypes = getAllAssetTypesFromDSL();
-
-		// create luangage model
-		languageModel = new LanguageModel();
-
-		// build luangage model by iterating through asset types
-		for (Class<? extends Asset> assetClass : assetTypes) {
-			String assetName = assetClass.getSimpleName();
-			LanguageModel.AssetMetadata metadata = new LanguageModel.AssetMetadata();
-			metadata.assetName = assetName;
-
-			// extract all attack steps for current asset
-			streamAssetAttackSteps(assetClass).forEach(f -> {
-				metadata.assetAttackSteps.add(f.getName());
-			});
-
-			// extract all defences for current asset
-			streamAssetDefense(assetClass).forEach(f -> {
-				metadata.assetDefenses.add(f.getName());
-			});
-
-			// store asset with corresponding attack steps and defences in language model
-			languageModel.assets.put(assetName, metadata);
-		}
 	}
 
 	/**
@@ -90,6 +64,54 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 	
 		if (out == null) {
 			createFile(classname);
+		}
+
+		// infer package name
+		// done here instead of setup() because of extension context
+		// still only executed the first time due to condition
+		if (CoverageExtension.packageName == null) {
+			CoverageExtension.packageName = ctx.getRequiredTestClass().getPackageName();
+		}
+
+		if (languageModel == null) {
+			buildLanguageModel();
+		}
+	}
+
+	/**
+	 * helper function building the language model after package name is known
+	 */
+	private void buildLanguageModel() {
+		// check how often this is executed
+		System.out.println("Building LanguageModel...");
+
+		// extract all asset types from the DSL
+		// executed one time before all tests
+		Set<Class<? extends Asset>> assetTypes = getAllAssetTypesFromDSL();
+
+		// create language model
+		languageModel = new LanguageModel();
+
+		// build language model by iterating through asset types
+		for (Class<? extends Asset> assetClass : assetTypes) {
+			String assetName = assetClass.getSimpleName();
+			LanguageModel.AssetMetadata metadata = new LanguageModel.AssetMetadata();
+			metadata.assetName = assetName;
+
+			// extract all attack steps for current asset
+			streamAssetAttackSteps(assetClass).forEach(f -> {
+				metadata.assetAttackSteps.add(f.getName());
+				allAttackSteps.add(assetName + "." + f.getName());
+			});
+
+			// extract all defences for current asset
+			streamAssetDefense(assetClass).forEach(f -> {
+				metadata.assetDefenses.add(f.getName());
+				allDefenses.add(assetName + "." + f.getName());
+			});
+
+			// store asset with corresponding attack steps and defences in language model
+			languageModel.assets.put(assetName, metadata);
 		}
 	}
 	
@@ -213,19 +235,6 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			untestedAssetTypes = new HashSet<>(languageModel.assets.keySet());
 			untestedAssetTypes.removeAll(usedAssetTypes);
 
-			// receive all defined attack steps and defences in DSL from languageModel
-			Set<String> allAttackSteps = new HashSet<>();
-			Set<String> allDefenses = new HashSet<>();
-
-			for (LanguageModel.AssetMetadata meta : languageModel.assets.values()) {
-				for (String attackStep : meta.assetAttackSteps) {
-					allAttackSteps.add(meta.assetName + "." + attackStep);
-				}
-				for (String defense : meta.assetDefenses) {
-					allDefenses.add(meta.assetName + "." + defense);
-				}
-			}
-
 			// calculate untested attack steps
 			untestedAttackSteps = new HashSet<>(allAttackSteps);
 			untestedAttackSteps.removeAll(usedAttackSteps);
@@ -304,22 +313,20 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			json.add("model", jAssets);
 			json.add("simulations", simulations);
 
-			// add untested assets
-			json.add("untestedAssetTypes", untestedAssetTypes);
-			// add untested attack steps
-			json.add("untestedAttackSteps", untestedAttackSteps);
-			// add untested defences
-			json.add("untestedDefenses", untestedDefenses);
+			// add total amounts of assets, attack steps and defences specified in DSL
+			json.add("totalAssetTypes", languageModel.assets.size());
+			json.add("totalAttackSteps", allAttackSteps.size());
+			json.add("totalDefenses", allDefenses.size());
 
-			// calculate asset type coverage on language level
+			// add untested assets, attack steps and defences
+			json.add("untestedAssetTypes", new TreeSet<>(untestedAssetTypes));
+			json.add("untestedAttackSteps", new TreeSet<>(untestedAttackSteps));
+			json.add("untestedDefenses", new TreeSet<>(untestedDefenses));
+
+			// calculate <asset type|attack step|defence> coverage on language level
 			json.add("assetTypeCoverageLanguageLevel", calculateLanguageLevelCoverage(usedAssetTypes.size(), languageModel.assets.size()));
-			// calculate attack step coverage on language level
 			json.add("attackStepCoverageLanguageLevel", calculateLanguageLevelCoverage(usedAttackSteps.size(), usedAttackSteps.size() + untestedAttackSteps.size()));
-			// calculate defence coverage on language level
 			json.add("defenseCoverageLanguageLevel", calculateLanguageLevelCoverage(usedDefenses.size(), usedDefenses.size() + untestedDefenses.size()));
-
-			System.out.println("Used Attack Steps:");
-			System.out.println(usedAttackSteps);
 
 			return json.toString();
 		}
