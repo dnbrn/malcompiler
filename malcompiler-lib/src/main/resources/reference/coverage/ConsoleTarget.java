@@ -18,6 +18,8 @@ import core.*;
 
 import org.junit.jupiter.api.extension.ExtensionContext;
 
+import core.coverage.LanguageModel;
+
 /**
  *
  */
@@ -37,6 +39,9 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 	// indicator when to print warnings
 	private boolean generateWarnings = false;
+
+	// language model
+	private LanguageModel languageModel;
 
 	public ConsoleTarget() {
 		this(true, true, true);
@@ -65,7 +70,23 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	}
 	
 	@Override
-	public void setup() {}
+	public void setup() {
+		// create language model like in JSONTarget
+		Set<Class<? extends Asset>> assetTypes = getAllAssetTypesFromDSL();
+
+		languageModel = new LanguageModel();
+
+		for (Class<? extends Asset> assetClass : assetTypes) {
+			String assetName = assetClass.getSimpleName();
+			LanguageModel.AssetMetadata metadata = new LanguageModel.AssetMetadata();
+			metadata.assetName = assetName;
+
+			streamAssetAttackSteps(assetClass).forEach(f -> metadata.assetAttackSteps.add(f.getName()));
+			streamAssetDefense(assetClass).forEach(f -> metadata.assetDefenses.add(f.getName()));
+
+			languageModel.assets.put(assetName, metadata);
+		}
+	}
 	
 	@Override
 	public void preprocess(ExtensionContext ctx) {
@@ -133,6 +154,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 						System.out.println(String.format("Test: %s", sim.name));
 						printCoverage(model, cd);
+						printLanguageCoverage(model);
 						System.out.println("");
 
 					}
@@ -153,6 +175,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					 
 					CoverageData cd = computeLocal(model, sgCompromised);
 					printCoverage(model, cd);
+					printLanguageCoverage(model);
 					printDefenseCoverage(model, coveredDefStates);
 					System.out.println();
 				}
@@ -176,6 +199,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					.collect(Collectors.toList()).size();
 
 				printCoverage(model, cd);
+				printLanguageCoverage(model);
 				printDefenseCoverage(model, coveredDefStates, model.groups.size());
 
 				id++;
@@ -244,7 +268,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	 */
 	private void printHeading(String title) {
 		// total width of the line (including ##)
-		int totalWidth = 53;
+		int totalWidth = 54;
 
 		int titleLength = title.length();
 		// -4 for the two "##" and two spaces
@@ -265,9 +289,43 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 		sb.append("##");
 
-		_out.println("#####################################################");
+		_out.println("######################################################");
 		_out.println(sb.toString());
-		_out.println("#####################################################");
+		_out.println("######################################################");
+	}
+
+	/**
+	 * compute and print information about language level coverage
+	 * @param model
+	 */
+	protected void printLanguageCoverage(ModelData model) {
+		int totalAssets = languageModel.assets.size();
+		int totalAttackSteps = languageModel.assets.values().stream()
+				.mapToInt(a -> a.assetAttackSteps.size())
+				.sum();
+		int totalDefenses = languageModel.assets.values().stream()
+				.mapToInt(a -> a.assetDefenses.size())
+				.sum();
+
+		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
+
+		int usedAssets = model.usedAssetTypes.size();
+		int usedAttackSteps = model.usedAttackSteps.size();
+		int usedDefenses = model.usedDefenses.size();
+
+		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
+
+		if (totalLanguageElements > 0) {
+			double fraction = (double) usedLanguageElements / totalLanguageElements;
+			double percent = fraction * 100.0;
+
+			_out.println(String.format("\t%-17s [%7d/%7d] -> %6.2f%%",
+					"Language coverage", usedLanguageElements, totalLanguageElements, percent));
+
+		} else {
+			// TODO evaluate this
+			_out.println(String.format("\t%-20s TOTAL = 0", "Language coverage"));
+		}
 	}
 
 
@@ -305,7 +363,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 		// in case no defences exist
 		if (m.nDefenses == 0) {
-			_out.println(String.format("\t%-16s [%5d/(%d * 2^%d)] -> 100.00%%",
+			_out.println(String.format("\t%-17s [%5d/(%d * 2^%d)] -> 100.00%%",
 					"Defence states", coveredStates, t, m.nDefenses));
 			return;
 		}
@@ -318,7 +376,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			BigDecimal fraction = numerator.divide(denominator, SCALE, BigDecimal.ROUND_HALF_UP);
 			BigDecimal percentage = fraction.multiply(BigDecimal.valueOf(100));
 
-			_out.println(String.format("\t%-16s [%7d/(%d * 2^%d)] -> %6.2f%%", "Defence states", coveredStates,
+			_out.println(String.format("\t%-17s [%7d/(%d * 2^%d)] -> %6.2f%%", "Defence states", coveredStates,
 					t, m.nDefenses, percentage.setScale(2, BigDecimal.ROUND_HALF_UP).doubleValue()));
 
 			// generate warnings
@@ -346,7 +404,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			double percent = fraction * 100.0;
 
 			// fixed output sizes
-			_out.println(String.format("\t%-16s [%7d/%7d] -> %6.2f%%", coverageType, nCompromised, nTotal, percent));
+			_out.println(String.format("\t%-17s [%7d/%7d] -> %6.2f%%", coverageType, nCompromised, nTotal, percent));
 
 			// generate warnings
 			// TODO
@@ -381,6 +439,11 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		public int nEdges = 0;
 		public int nDefenses = 0;
 
+		// track specific used asset types, attack steps and defences without douplication
+		public Set<String> usedAssetTypes = new HashSet<>();
+		public Set<String> usedAttackSteps = new HashSet<>();
+		public Set<String> usedDefenses = new HashSet<>();
+
 		public List<String> tests = new LinkedList<>();
 
 		/**
@@ -397,6 +460,9 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			// Generate model
 			for (Asset asset : Asset.allAssets) {
 				assetIds.add(asset.hashCode());
+				// mark as used
+				usedAssetTypes.add(asset.getClass().getSimpleName());
+
 				List<AttackStep> steps = getAttackSteps(asset);
 				nAttackSteps += steps.size();
 
@@ -405,6 +471,8 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				// Add attack steps
 				for (AttackStep step : steps) {
 					stepIds.add(processAttackStep(step));
+					// mark as used
+					usedAttackSteps.add(asset.getClass().getSimpleName() + "." + step.attackStepName());
 				}
 
 				// Add defenses hidden attack steps
@@ -412,6 +480,8 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				nDefenses += assetDefenses.size();
 				for (Defense def : assetDefenses) {
 					stepIds.add(processAttackStep(def.disable));
+					// mark as used
+					usedDefenses.add(asset.getClass().getSimpleName() + "." + def.getClass().getSimpleName());
 				}
 
 				assetSteps.put(asset.hashCode(), stepIds);
