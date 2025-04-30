@@ -216,7 +216,8 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 				// attack steps
 				for (AttackStep step : getAttackSteps(asset)) {
-					if (step.ttc != AttackStep.infinity) {
+					// check whether attack step might be "disguised" defence
+					if (!step.getClass().getSimpleName().equals("Disable") && step.ttc != AttackStep.infinity) {
 						String stepName = assetClass + "." + getFieldName(asset, step);
 						usedAttackSteps.add(stepName);
 					}

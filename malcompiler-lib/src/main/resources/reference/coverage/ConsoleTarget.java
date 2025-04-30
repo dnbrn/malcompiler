@@ -100,12 +100,42 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	public void processCoverage() {
 		ModelKey modelKey = new ModelKey();
 		ModelData current = models.computeIfAbsent(modelKey, s -> new ModelData());
+
+		// disabled
+		/*
 		Set<Integer> compromisedSteps = AttackStep.allAttackSteps.stream()
 			.filter(s -> s.ttc != AttackStep.infinity)
 			.map(s -> s.hashCode()).collect(Collectors.toSet());
-	
+		 */
+
+		/*
+		// combine hashes and names of attack steps with defences as hidden attack steps (".Disable")
+		Map<Integer, String> compromisedStepMap = AttackStep.allAttackSteps.stream()
+				.filter(s -> s.ttc != AttackStep.infinity)
+				.collect(Collectors.toMap(
+						s -> s.hashCode(),
+						s -> s.fullName()
+				));
+		// If you still want them separately too:
+		Set<Integer> compromisedStepsFromMap = compromisedStepMap.keySet();
+		List<String> compromisedStepNames = new ArrayList<>(compromisedStepMap.values());
+		//_out.println(compromisedStepMap);
+		 */
+
+		// filter out defences as hidden attack steps (".Disable")
+		Map<Integer, String> compromisedStepMapWODefences = AttackStep.allAttackSteps.stream()
+				.filter(s -> s.ttc != AttackStep.infinity)
+				.filter(s -> !s.getClass().getSimpleName().equals("Disable"))
+				.collect(Collectors.toMap(
+						s -> s.hashCode(),
+						s -> s.fullName()
+				));
+		Set<Integer> compromisedSteps = compromisedStepMapWODefences.keySet();
+		Set<String> compromisedStepNames = new HashSet<>(compromisedStepMapWODefences.values());
+
 		// Compound model compromised steps
 		current.compromisedSteps.addAll(compromisedSteps);
+		current.compromisedStepNames.addAll(compromisedStepNames);
 	
 		Set<Integer> groupKey = AttackStep.allAttackSteps.stream()
 			.filter(s -> s.initiallyCompromised)
@@ -115,9 +145,37 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		Integer defenseState = Defense.allDefenses.stream()
 			.filter(s -> s.isEnabled())
 			.collect(Collectors.toSet()).hashCode();
-	
+
+		// get used asset types, steps, defences
+		Set<String> usedAssetTypes = new HashSet<>();
+		Set<String> usedAttackSteps = new HashSet<>();
+		Set<String> usedDefenses = new HashSet<>();
+
+		for (Asset asset : Asset.allAssets) {
+			for (AttackStep step : getAttackSteps(asset)) {
+				if (step.ttc != AttackStep.infinity) {
+					String assetName = asset.getClass().getSimpleName();
+					usedAssetTypes.add(assetName);
+
+					if (step.getClass().getSimpleName().equals("Disable")) {
+						usedDefenses.add(assetName + "." + getFieldName(asset, step));
+					} else {
+						usedAttackSteps.add(assetName + "." + getFieldName(asset, step));
+					}
+				}
+			}
+			for (Defense def : getDefenses(asset)) {
+				if (def.disable.ttc != AttackStep.infinity) {
+					String assetName = asset.getClass().getSimpleName();
+					usedAssetTypes.add(assetName);
+					usedDefenses.add(assetName + "." + getFieldName(asset, def));
+				}
+			}
+		}
+
 		// Simulation coverage = computeLocal(current, compromisedSteps);
-		Simulation sim = new Simulation(String.format("%s::%s", _classname, _testname), compromisedSteps, defenseState);
+		Simulation sim = new Simulation(String.format("%s::%s", _classname, _testname), compromisedSteps, defenseState,
+				usedAssetTypes, usedAttackSteps, usedDefenses);
 		List<Simulation> group = current.groups.computeIfAbsent(groupKey.hashCode(), s -> new ArrayList<Simulation>());
 
 		group.add(sim);
@@ -154,7 +212,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 						System.out.println(String.format("Test: %s", sim.name));
 						printCoverage(model, cd);
-						printLanguageCoverage(model);
+						printLanguageCoverage(sim);
 						System.out.println("");
 
 					}
@@ -175,7 +233,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					 
 					CoverageData cd = computeLocal(model, sgCompromised);
 					printCoverage(model, cd);
-					printLanguageCoverage(model);
+					printLanguageCoverage(group);
 					printDefenseCoverage(model, coveredDefStates);
 					System.out.println();
 				}
@@ -192,6 +250,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				System.out.println("Tests: " + modelTestNames);
 
 				CoverageData cd = computeLocal(model, model.compromisedSteps);
+
 				int coveredDefStates = model.groups.values().stream()
 					.flatMap(List::stream)
 					.map(s -> s.defenseState)
@@ -207,14 +266,20 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 			// revert to default of not printing warnings
 			generateWarnings = false;
+
+			if (!warnings.isEmpty()) {
+				_out.println();
+				printHeading("Warnings");
+				for (String warning : warnings) {
+					_out.println("\t⚠️ " + warning);
+				}
+				warnings.clear();
+			}
+
+			printLanguageCoverageSummary(model);
 		}
 
-		if (!warnings.isEmpty()) {
-			printHeading("Warnings");
-			for (String warning : warnings) {
-				_out.println("\t⚠️ " + warning);
-			}
-		}
+
 	}
 	
 	/**
@@ -296,9 +361,10 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 	/**
 	 * compute and print information about language level coverage
-	 * @param model
+	 * @param model data about collection of simulation groups
 	 */
 	protected void printLanguageCoverage(ModelData model) {
+		// only work with context of specific test and simulation groups in this model
 		int totalAssets = languageModel.assets.size();
 		int totalAttackSteps = languageModel.assets.values().stream()
 				.mapToInt(a -> a.assetAttackSteps.size())
@@ -309,24 +375,151 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
 
-		int usedAssets = model.usedAssetTypes.size();
-		int usedAttackSteps = model.usedAttackSteps.size();
-		int usedDefenses = model.usedDefenses.size();
+		Set<String> usedAssetTypeNames = new HashSet<>();
+		Set<String> usedAttackStepNames = new HashSet<>();
+		Set<String> usedDefenseNames = new HashSet<>();
+		for (List<Simulation> group : model.groups.values())
+			for (Simulation sim : group) {
+				usedAssetTypeNames.addAll(sim.usedAssetTypeNames);
+				usedAttackStepNames.addAll(sim.usedAttackStepNames);
+				usedDefenseNames.addAll(sim.usedDefenseNames);
+			}
 
+		int usedAssets = usedAssetTypeNames.size();
+		int usedAttackSteps = usedAttackStepNames.size();
+		int usedDefenses = usedDefenseNames.size();
 		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
 
 		if (totalLanguageElements > 0) {
 			double fraction = (double) usedLanguageElements / totalLanguageElements;
 			double percent = fraction * 100.0;
 
-			_out.println(String.format("\t%-17s [%7d/%7d] -> %6.2f%%",
-					"Language coverage", usedLanguageElements, totalLanguageElements, percent));
+			_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+					"Language elements", usedLanguageElements, totalLanguageElements, percent));
 
 		} else {
 			// TODO evaluate this
-			_out.println(String.format("\t%-20s TOTAL = 0", "Language coverage"));
+			_out.println(String.format("\t%-17s TOTAL = 0", "Language coverage"));
 		}
 	}
+
+	/**
+	 * compute and print information about language level coverage
+	 * @param group data about group of simulations
+	 */
+	protected void printLanguageCoverage(List<Simulation> group) {
+		// only work with context of specific simulation group
+		int totalAssets = languageModel.assets.size();
+		int totalAttackSteps = languageModel.assets.values().stream()
+				.mapToInt(a -> a.assetAttackSteps.size())
+				.sum();
+		int totalDefenses = languageModel.assets.values().stream()
+				.mapToInt(a -> a.assetDefenses.size())
+				.sum();
+
+		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
+
+		Set<String> usedAssetTypeNames = new HashSet<>();
+		Set<String> usedAttackStepNames = new HashSet<>();
+		Set<String> usedDefenseNames = new HashSet<>();
+		for (Simulation sim : group) {
+			usedAssetTypeNames.addAll(sim.usedAssetTypeNames);
+			usedAttackStepNames.addAll(sim.usedAttackStepNames);
+			usedDefenseNames.addAll(sim.usedDefenseNames);
+		}
+
+		int usedAssets = usedAssetTypeNames.size();
+		int usedAttackSteps = usedAttackStepNames.size();
+		int usedDefenses = usedDefenseNames.size();
+		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
+
+		if (totalLanguageElements > 0) {
+			double fraction = (double) usedLanguageElements / totalLanguageElements;
+			double percent = fraction * 100.0;
+
+			_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+					"Language elements", usedLanguageElements, totalLanguageElements, percent));
+
+		} else {
+			// TODO evaluate this
+			_out.println(String.format("\t%-17s TOTAL = 0", "Language coverage"));
+		}
+	}
+
+	/**
+	 * compute and print information about language level coverage
+	 * @param sim data about a single simulation
+	 */
+	protected void printLanguageCoverage(Simulation sim) {
+		// only work with context of specific test
+		int totalAssets = languageModel.assets.size();
+		int totalAttackSteps = languageModel.assets.values().stream()
+				.mapToInt(a -> a.assetAttackSteps.size())
+				.sum();
+		int totalDefenses = languageModel.assets.values().stream()
+				.mapToInt(a -> a.assetDefenses.size())
+				.sum();
+
+		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
+
+		int usedAssets = sim.usedAssetTypeNames.size();
+		int usedAttackSteps = sim.usedAttackStepNames.size();
+		int usedDefenses = sim.usedDefenseNames.size();
+		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
+
+		if (totalLanguageElements > 0) {
+			double fraction = (double) usedLanguageElements / totalLanguageElements;
+			double percent = fraction * 100.0;
+
+			_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+					"Language elements", usedLanguageElements, totalLanguageElements, percent));
+
+		} else {
+			// TODO evaluate this
+			_out.println(String.format("\t%-17s TOTAL = 0", "Language coverage"));
+		}
+	}
+
+	/**
+	 * function to print a summary of all points regarding language coverage
+	 */
+	private void printLanguageCoverageSummary(ModelData model) {
+		_out.println();
+		printHeading("Language Coverage");
+
+		int totalAssets = languageModel.assets.size();
+		int totalAttackSteps = languageModel.assets.values().stream()
+				.mapToInt(a -> a.assetAttackSteps.size())
+				.sum();
+		int totalDefenses = languageModel.assets.values().stream()
+				.mapToInt(a -> a.assetDefenses.size())
+				.sum();
+
+		int usedAssets = model.usedAssetTypes.size();
+		int usedAttackSteps = model.usedAttackSteps.size();
+		int usedDefenses = model.usedDefenses.size();
+
+		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+				"Asset Types", usedAssets, totalAssets, (usedAssets * 100.0 / totalAssets)));
+
+		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+				"Attack Steps ", usedAttackSteps, totalAttackSteps, (usedAttackSteps * 100.0 / totalAttackSteps)));
+
+		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+				"Defences", usedDefenses, totalDefenses, (usedDefenses * 100.0 / totalDefenses)));
+
+		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
+		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
+
+		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+				"Language elements", usedLanguageElements, totalLanguageElements,
+				(usedLanguageElements * 100.0 / totalLanguageElements)));
+
+		_out.println();
+		_out.println("Note: Associations (relationships between assets) are not yet separately counted.");
+		_out.println();
+	}
+
 
 
 	/**
@@ -368,15 +561,15 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			return;
 		}
 
-		BigDecimal numerator = new BigDecimal(BigInteger.valueOf(coveredStates), SCALE);
-		BigDecimal denominator = new BigDecimal(BigInteger.valueOf(2), SCALE).pow(m.nDefenses)
+		BigDecimal numerator = BigDecimal.valueOf(coveredStates);
+		BigDecimal denominator = BigDecimal.valueOf(2).pow(m.nDefenses)
 				.multiply(BigDecimal.valueOf(t));
 
 		if (denominator.compareTo(BigDecimal.ZERO) > 0) {
 			BigDecimal fraction = numerator.divide(denominator, SCALE, BigDecimal.ROUND_HALF_UP);
 			BigDecimal percentage = fraction.multiply(BigDecimal.valueOf(100));
 
-			_out.println(String.format("\t%-17s [%7d/(%d * 2^%d)] -> %6.2f%%", "Defence states", coveredStates,
+			_out.println(String.format("\t%-17s [%5d/(%d * 2^%d)] -> %6.2f%%", "Defence states", coveredStates,
 					t, m.nDefenses, percentage.setScale(2, BigDecimal.ROUND_HALF_UP).doubleValue()));
 
 			// generate warnings
@@ -387,7 +580,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 						percentage.doubleValue()));
 			}
 		} else {
-			_out.println(String.format("\t%-20s TOTAL = 0", "Defence states"));
+			_out.println(String.format("\t%-17s TOTAL = 0", "Defence states"));
 		}
 	}
 
@@ -404,7 +597,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			double percent = fraction * 100.0;
 
 			// fixed output sizes
-			_out.println(String.format("\t%-17s [%7d/%7d] -> %6.2f%%", coverageType, nCompromised, nTotal, percent));
+			_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%", coverageType, nCompromised, nTotal, percent));
 
 			// generate warnings
 			// TODO
@@ -413,8 +606,25 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				warnings.add(String.format("%s coverage is only %.2f%%", coverageType, percent));
 			}
 		} else {
-			_out.println(String.format("\t%-20s TOTAL = 0", coverageType));
+			_out.println(String.format("\t%-17s TOTAL = 0", coverageType));
 		}
+	}
+
+	/**
+	 * helper function to get field name
+	 * @param asset
+	 * @param value
+	 * @return
+	 */
+	private String getFieldName(Asset asset, Object value) {
+		for (Field field : asset.getClass().getFields()) {
+			try {
+				if (field.get(asset) == value) {
+					return field.getName();
+				}
+			} catch (IllegalAccessException ignored) {}
+		}
+		return "unknown";
 	}
 	
 	/**
@@ -429,6 +639,9 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		public Map<Integer, Set<Integer>> stepParents = new HashMap<>(AttackStep.allAttackSteps.size());
 
 		public Set<Integer> compromisedSteps = new HashSet<>(AttackStep.allAttackSteps.size());
+
+		// additional variable to safe names of compromised attack steps
+		public Set<String> compromisedStepNames = new HashSet<>();
 
 		// key = [ <initially compromised steps> ].hashCode()
 		// Each list represents a simulation group
@@ -456,7 +669,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			nAttackSteps = 0;
 			//nDefenses = Defense.allDefenses.size();
 			nDefenses = 0;
-			
+
 			// Generate model
 			for (Asset asset : Asset.allAssets) {
 				assetIds.add(asset.hashCode());
@@ -520,12 +733,21 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		public final String name;
 		public final Set<Integer> compromisedSteps;
 		public final Integer defenseState;
-	
-		public Simulation(String name, Set<Integer> compSteps, Integer defState) {
+
+		// added for language elements tracking
+		public final Set<String> usedAssetTypeNames;
+		public final Set<String> usedAttackStepNames;
+		public final Set<String> usedDefenseNames;
+
+		public Simulation(String name, Set<Integer> compSteps, Integer defState,
+                      Set<String> usedAssets, Set<String> usedSteps, Set<String> usedDefs) {
 			this.name = name;
 			this.compromisedSteps = compSteps;
 			this.defenseState = defState;
-		}
+			this.usedAssetTypeNames = usedAssets;
+			this.usedAttackStepNames = usedSteps;
+			this.usedDefenseNames = usedDefs;
+    	}
 	}
 	
 	/**
