@@ -126,7 +126,7 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
          * @param a asset
          * @return attack steps declared for asset a
          */
-        protected Stream<Field> streamAssetAttackSteps(Class assetClass) {
+        protected Stream<Field> streamAssetAttackSteps(Class<? extends Asset> assetClass) {
             return Arrays.stream(assetClass.getFields())
                 .filter(e -> AttackStep.class.isAssignableFrom(e.getType()));
         }
@@ -138,7 +138,7 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
          * @param a asset 
          * @return defenses defined for asset a
          */
-        protected Stream<Field> streamAssetDefense(Class assetClass) {
+        protected Stream<Field> streamAssetDefense(Class<? extends Asset> assetClass) {
             return Arrays.stream(assetClass.getFields())
                 .filter(c -> Defense.class.isAssignableFrom(c.getType()));
         }

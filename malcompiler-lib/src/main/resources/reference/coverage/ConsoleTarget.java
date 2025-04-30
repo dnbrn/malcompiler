@@ -13,6 +13,7 @@ import java.util.LinkedList;
 import java.util.HashSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.math.RoundingMode;
 
 import core.*;
 
@@ -566,11 +567,11 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 				.multiply(BigDecimal.valueOf(t));
 
 		if (denominator.compareTo(BigDecimal.ZERO) > 0) {
-			BigDecimal fraction = numerator.divide(denominator, SCALE, BigDecimal.ROUND_HALF_UP);
+			BigDecimal fraction = numerator.divide(denominator, SCALE, RoundingMode.HALF_UP);
 			BigDecimal percentage = fraction.multiply(BigDecimal.valueOf(100));
 
 			_out.println(String.format("\t%-17s [%5d/(%d * 2^%d)] -> %6.2f%%", "Defence states", coveredStates,
-					t, m.nDefenses, percentage.setScale(2, BigDecimal.ROUND_HALF_UP).doubleValue()));
+					t, m.nDefenses, percentage.setScale(2, RoundingMode.HALF_UP).doubleValue()));
 
 			// generate warnings
 			// TODO
