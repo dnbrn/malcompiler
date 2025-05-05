@@ -24,6 +24,7 @@ import core.Defense;
 import core.coverage.LanguageModel;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 
 public class JSONTarget  extends CoverageExtension.ExportableTarget {
 	public Map<ModelKey, Model> models = new HashMap<>();
@@ -110,11 +111,164 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 				allDefenses.add(assetName + "." + f.getName());
 			});
 
+			// extract associations
+			for (Field field : assetClass.getFields()) {
+
+				// added to filter out inherited Asset.allAssets
+				if (Modifier.isStatic(field.getModifiers())) {
+					continue;
+				}
+
+				Class<?> fieldType = field.getType();
+
+				// only consider association fields
+				if (Asset.class.isAssignableFrom(fieldType)) {
+					// Single-valued association
+					LanguageModel.UnmergedAssociation assoc = new LanguageModel.UnmergedAssociation();
+					assoc.sourceAsset = assetName;
+					assoc.sourceField = field.getName();
+					assoc.sourceMultiplicity = "1";
+					assoc.targetAsset = fieldType.getSimpleName();
+
+					languageModel.allUnmergedAssociations.add(assoc);
+
+				} else if (Collection.class.isAssignableFrom(fieldType)) {
+					String signature = field.toGenericString();
+					String typeName = "UNKNOWN";
+
+					if (signature.contains("<") && signature.contains(">")) {
+						int start = signature.indexOf('<') + 1;
+						int end = signature.indexOf('>');
+						typeName = signature.substring(start, end).trim();
+
+						if (typeName.contains(".")) {
+							typeName = typeName.substring(typeName.lastIndexOf('.') + 1);
+						}
+					}
+
+					LanguageModel.UnmergedAssociation assoc = new LanguageModel.UnmergedAssociation();
+					assoc.sourceAsset = assetName;
+					assoc.sourceField = field.getName();
+					assoc.sourceMultiplicity = "*";
+					assoc.targetAsset = typeName;
+
+					languageModel.allUnmergedAssociations.add(assoc);
+				}
+			}
+
 			// store asset with corresponding attack steps and defences in language model
 			languageModel.assets.put(assetName, metadata);
 		}
+
+		// merge allUnmergedAssociations
+		languageModel.assets.values().forEach(m -> m.assetAssociations.clear());
+		Set<LanguageModel.AssociationMetadata> mergedAssociations =
+				mergeUnmergedAssociations(languageModel.allUnmergedAssociations);
+
+		// add associations to asset types in language model
+		for (LanguageModel.AssociationMetadata assoc : mergedAssociations) {
+			languageModel.assets.get(assoc.leftAsset).assetAssociations.add(assoc);
+		}
+		// add to language model in general
+		languageModel.mergedAssociations = mergedAssociations;
 	}
-	
+
+	/**
+	 * function to merge extracted on-sided unmerged associations
+	 * @param unmerged associations
+	 * @return
+	 */
+	private Set<LanguageModel.AssociationMetadata> mergeUnmergedAssociations(Set<LanguageModel.UnmergedAssociation> unmerged) {
+		Map<String, List<LanguageModel.UnmergedAssociation>> grouped = new HashMap<>();
+
+		// Helper to create a bidirectional key (unordered asset pair)
+		for (LanguageModel.UnmergedAssociation ua : unmerged) {
+			String key = ua.sourceAsset.compareTo(ua.targetAsset) < 0
+					? ua.sourceAsset + "::" + ua.targetAsset
+					: ua.targetAsset + "::" + ua.sourceAsset;
+
+			grouped.computeIfAbsent(key, k -> new ArrayList<>()).add(ua);
+		}
+
+		Set<LanguageModel.AssociationMetadata> merged = new HashSet<>();
+
+		for (Map.Entry<String, List<LanguageModel.UnmergedAssociation>> entry : grouped.entrySet()) {
+			List<LanguageModel.UnmergedAssociation> pair = entry.getValue();
+
+			if (pair.size() == 2) {
+				// Found both sides of the association
+				LanguageModel.UnmergedAssociation a = pair.get(0);
+				LanguageModel.UnmergedAssociation b = pair.get(1);
+
+				LanguageModel.AssociationMetadata assoc = new LanguageModel.AssociationMetadata();
+				assoc.leftAsset = a.sourceAsset;
+				assoc.leftField = b.sourceField;
+				assoc.leftMultiplicity = b.sourceMultiplicity;
+				assoc.rightMultiplicity = a.sourceMultiplicity;
+				assoc.rightField = a.sourceField;
+				assoc.rightAsset = a.targetAsset;
+
+				merged.add(assoc);
+
+			} else if (pair.size() == 1) {
+				// only one side, hopefully won't happen
+				LanguageModel.UnmergedAssociation a = pair.get(0);
+
+				// debug information
+				System.out.println("");
+				System.out.println("Partial association: " + a.toString());
+				System.out.println("Only one side of the association found! Check if everything works as supposed to!");
+				System.out.println("");
+
+				LanguageModel.AssociationMetadata assoc = new LanguageModel.AssociationMetadata();
+				assoc.leftAsset = a.sourceAsset;
+				assoc.leftField = "?";
+				assoc.leftMultiplicity = "?";
+				assoc.rightMultiplicity = a.sourceMultiplicity;
+				assoc.rightField = a.sourceField;
+				assoc.rightAsset = a.targetAsset;
+
+				merged.add(assoc);
+			}
+		}
+
+		return merged;
+	}
+
+	/**
+	 * function to compute the used associations compared to the defined ones in the dsl
+	 * @return
+	 */
+	/*
+	private Set<LanguageModel.AssociationMetadata> computeUsedAssociations() {
+		Set<LanguageModel.AssociationMetadata> used = new HashSet<>();
+
+		for (Asset asset : Asset.allAssets) {
+			String assetType = asset.getClass().getSimpleName();
+
+			for (LanguageModel.AssociationMetadata assoc : languageModel.mergedAssociations) {
+				// Match only if this asset is the left side of the association
+				if (!assoc.leftAsset.equals(assetType)) continue;
+
+				try {
+					Set<Asset> linkedAssets = asset.getAssociatedAssets(assoc.associationName);
+
+					if (linkedAssets != null && !linkedAssets.isEmpty()) {
+						used.add(assoc);
+					}
+				} catch (Exception e) {
+					// This can happen if field name doesn't match exactly
+					System.out.printf("Warning: could not inspect field '%s' in asset '%s'%n", assoc.associationName, assetType);
+				}
+			}
+		}
+
+		return used;
+	}
+	 */
+
+
+
 	@Override
 	public void processCoverage() {
 		ModelKey key = new ModelKey();
