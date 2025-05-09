@@ -50,7 +50,6 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 	@Override
 	public void setup() {
-
 	}
 
 	/**
@@ -356,24 +355,20 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 		* check whether the model is correct.		
 		*/
 		public void storeCurrentState() {
-			simulations.add(new Sim(classname, testname));
-
-			// reset
-			usedAssetTypes = new HashSet<>();
-			usedAttackSteps = new HashSet<>();
-			usedDefenses = new HashSet<>();
+			Sim sim = new Sim(classname, testname);
+			simulations.add(sim);
 
 			// extract used attack steps and defences based on used asset types
 			for (Asset asset : assets) {
 				String assetClass = asset.getClass().getSimpleName();
-				usedAssetTypes.add(assetClass);
+				sim.usedAssetTypes.add(assetClass);
 
 				// attack steps
 				for (AttackStep step : getAttackSteps(asset)) {
 					// check whether attack step might be "disguised" defence
 					if (!step.getClass().getSimpleName().equals("Disable") && step.ttc != AttackStep.infinity) {
 						String stepName = assetClass + "." + getFieldName(asset, step);
-						usedAttackSteps.add(stepName);
+						sim.usedAttackSteps.add(stepName);
 					}
 				}
 
@@ -381,23 +376,22 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 				for (Defense def : getDefenses(asset)) {
 					if (def.isEnabled()) {
 						String defName = assetClass + "." + getFieldName(asset, def);
-						usedDefenses.add(defName);
+						sim.usedDefenses.add(defName);
 					}
 				}
 			}
 
-			// calculate untested asset types
-			untestedAssetTypes = new HashSet<>(languageModel.assets.keySet());
-			untestedAssetTypes.removeAll(usedAssetTypes);
+			// calculate untested asset types in sim
+			sim.untestedAssetTypes = new HashSet<>(languageModel.assets.keySet());
+			sim.untestedAssetTypes.removeAll(sim.usedAssetTypes);
 
-			// calculate untested attack steps
-			untestedAttackSteps = new HashSet<>(allAttackSteps);
-			untestedAttackSteps.removeAll(usedAttackSteps);
+			// calculate untested attack steps in sim
+			sim.untestedAttackSteps = new HashSet<>(allAttackSteps);
+			sim.untestedAttackSteps.removeAll(sim.usedAttackSteps);
 
-			// calculate untested defenses
-			untestedDefenses = new HashSet<>(allDefenses);
-			untestedDefenses.removeAll(usedDefenses);
-
+			// calculate untested defenses in sim
+			sim.untestedDefenses = new HashSet<>(allDefenses);
+			sim.untestedDefenses.removeAll(sim.usedDefenses);
 		}
 
 		/**
@@ -473,15 +467,39 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			json.add("totalAttackSteps", allAttackSteps.size());
 			json.add("totalDefenses", allDefenses.size());
 
+			// add used assets, attack steps and defences
+			// calculate from all simulations
+			for (Sim sim : simulations) {
+				usedAssetTypes.addAll(sim.usedAssetTypes);
+				usedAttackSteps.addAll(sim.usedAttackSteps);
+				usedDefenses.addAll(sim.usedDefenses);
+			}
+			json.add("totalUsedAssetTypes", new TreeSet<>(usedAssetTypes));
+			json.add("totalUsedAttackSteps", new TreeSet<>(usedAttackSteps));
+			json.add("totalUsedDefenses", new TreeSet<>(usedDefenses));
+
 			// add untested assets, attack steps and defences
-			json.add("untestedAssetTypes", new TreeSet<>(untestedAssetTypes));
-			json.add("untestedAttackSteps", new TreeSet<>(untestedAttackSteps));
-			json.add("untestedDefenses", new TreeSet<>(untestedDefenses));
+			// calculate from all simulations
+			untestedAssetTypes = new HashSet<>(languageModel.assets.keySet());
+			untestedAttackSteps = new HashSet<>(allAttackSteps);
+			untestedDefenses = new HashSet<>(allDefenses);
+			for (Sim sim : simulations) {
+				untestedAssetTypes.removeAll(sim.usedAssetTypes);
+				untestedAttackSteps.removeAll(sim.usedAttackSteps);
+				untestedDefenses.removeAll(sim.usedDefenses);
+			}
+			json.add("totalUntestedAssetTypes", new TreeSet<>(untestedAssetTypes));
+			json.add("totalUntestedAttackSteps", new TreeSet<>(untestedAttackSteps));
+			json.add("totalUntestedDefenses", new TreeSet<>(untestedDefenses));
 
 			// calculate <asset type|attack step|defence> coverage on language level
 			json.add("assetTypeCoverageLanguageLevel", calculateLanguageLevelCoverage(usedAssetTypes.size(), languageModel.assets.size()));
 			json.add("attackStepCoverageLanguageLevel", calculateLanguageLevelCoverage(usedAttackSteps.size(), usedAttackSteps.size() + untestedAttackSteps.size()));
 			json.add("defenseCoverageLanguageLevel", calculateLanguageLevelCoverage(usedDefenses.size(), usedDefenses.size() + untestedDefenses.size()));
+
+			// store total number of language elements
+			int totalLanguageElements = languageModel.assets.size() + allAttackSteps.size() + allDefenses.size();
+			json.add("totalLanguageElements", totalLanguageElements);
 
 			return json.toString();
 		}
@@ -530,6 +548,14 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 			final String clsName;
 			final String mName;
+
+			// for evaluating simulation's langauge coverage
+			Set<String> usedAssetTypes = new HashSet<>();
+			Set<String> usedAttackSteps = new HashSet<>();
+			Set<String> usedDefenses = new HashSet<>();
+			Set<String> untestedAssetTypes = new HashSet<>();
+			Set<String> untestedAttackSteps = new HashSet<>();
+			Set<String> untestedDefenses = new HashSet<>();
 
 			public Sim(String clsName, String mName) {
 				this.clsName = clsName;
@@ -618,6 +644,12 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 				}
 
 				json.add("compromised", jComp);
+
+				// add all used assets, attack steps, defences
+				json.add("usedAssetTypes", usedAssetTypes);
+				json.add("usedAttackSteps", usedAttackSteps);
+				json.add("usedDefenses", usedDefenses);
+
 				return json.toString();
 			}
 		}

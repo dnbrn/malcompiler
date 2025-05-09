@@ -213,21 +213,7 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
 
 			assetTypes = reflections.getSubTypesOf(Asset.class); // All classes extending Asset
 
-			// TODO debug information
-			// System.out.println("Discovered DSL assets: " + assetTypes);
 			return assetTypes;
-
-
-			/*
-			try {
-				// TODO platzhalter host
-				// automate later -> iterate through all
-				assetTypes.add(Class.forName(packageName + ".Host").asSubclass(Asset.class));
-			} catch (ClassNotFoundException e) {
-				System.err.println("Assets could not be loaded from " + packageName);
-				e.printStackTrace();
-			}
-			 */
 		}
 		
 		/**

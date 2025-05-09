@@ -102,27 +102,6 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		ModelKey modelKey = new ModelKey();
 		ModelData current = models.computeIfAbsent(modelKey, s -> new ModelData());
 
-		// disabled
-		/*
-		Set<Integer> compromisedSteps = AttackStep.allAttackSteps.stream()
-			.filter(s -> s.ttc != AttackStep.infinity)
-			.map(s -> s.hashCode()).collect(Collectors.toSet());
-		 */
-
-		/*
-		// combine hashes and names of attack steps with defences as hidden attack steps (".Disable")
-		Map<Integer, String> compromisedStepMap = AttackStep.allAttackSteps.stream()
-				.filter(s -> s.ttc != AttackStep.infinity)
-				.collect(Collectors.toMap(
-						s -> s.hashCode(),
-						s -> s.fullName()
-				));
-		// If you still want them separately too:
-		Set<Integer> compromisedStepsFromMap = compromisedStepMap.keySet();
-		List<String> compromisedStepNames = new ArrayList<>(compromisedStepMap.values());
-		//_out.println(compromisedStepMap);
-		 */
-
 		// filter out defences as hidden attack steps (".Disable")
 		Map<Integer, String> compromisedStepMapWODefences = AttackStep.allAttackSteps.stream()
 				.filter(s -> s.ttc != AttackStep.infinity)
@@ -305,7 +284,6 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 			for (int stepHash : data.assetSteps.get(assetHash)) {
 				boolean compromised = compromisedSteps.contains(stepHash);
-
 				fullyComp = fullyComp && compromised;
 				partialComp = partialComp || compromised;
 
@@ -515,10 +493,6 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
 				"Language elements", usedLanguageElements, totalLanguageElements,
 				(usedLanguageElements * 100.0 / totalLanguageElements)));
-
-		_out.println();
-		_out.println("Note: Associations (relationships between assets) are not yet separately counted.");
-		_out.println();
 	}
 
 
