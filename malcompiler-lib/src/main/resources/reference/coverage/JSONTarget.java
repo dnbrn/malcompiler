@@ -325,7 +325,7 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 		Map<Integer, Integer> stepAssetMap = new HashMap<>(AttackStep.allAttackSteps.size());
 
-		// untested asset types
+		// asset types
 		Set<String> usedAssetTypes = new HashSet<>();
 		Set<String> untestedAssetTypes = new HashSet<>();
 		// attacksteps
@@ -334,6 +334,9 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 		// defences
 		Set<String> usedDefenses = new HashSet<>();
 		Set<String> untestedDefenses = new HashSet<>();
+		// associations
+		Set<String> usedAssociations = new HashSet<>();
+		Set<String> untestedAssociations = new HashSet<>();
 
 		// Stores simulations
 		private Set<Sim> simulations = new HashSet<>();
@@ -392,6 +395,49 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			// calculate untested defenses in sim
 			sim.untestedDefenses = new HashSet<>(allDefenses);
 			sim.untestedDefenses.removeAll(sim.usedDefenses);
+
+			// add dynamic associations
+			sim.usedAssociations = computeUsedAssociations();
+
+			// calculate untested associations in sim
+			sim.untestedAssociations = languageModel.mergedAssociations.stream()
+					.map(Object::toString)
+					.collect(Collectors.toSet());
+
+			sim.untestedAssociations.removeAll(sim.usedAssociations);
+		}
+
+		/**
+		 * function to dynamically compute the associations used in the model
+		 * @param languageModel
+		 * @return
+		 */
+		private Set<String> computeUsedAssociations() {
+			Set<String> used = new HashSet<>();
+
+			for (Asset asset : assets) {
+				String assetTypeName = asset.getClass().getSimpleName();
+
+				for (LanguageModel.AssociationMetadata assoc : languageModel.mergedAssociations) {
+
+					// only evaluate if asset is the left side of the association
+					if (!assoc.leftAsset.equals(assetTypeName)) continue;
+
+					try {
+						// asset-provided accessor
+						Set<Asset> associated = asset.getAssociatedAssets(assoc.rightField);
+
+						if (associated != null && !associated.isEmpty()) {
+							used.add(assoc.toString());
+						}
+					} catch (Exception e) {
+						System.out.printf("Warning: could not inspect association field '%s' in asset '%s'%n",
+								assoc.rightField, assetTypeName);
+					}
+				}
+			}
+
+			return used;
 		}
 
 		/**
@@ -466,6 +512,7 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			json.add("totalAssetTypes", languageModel.assets.size());
 			json.add("totalAttackSteps", allAttackSteps.size());
 			json.add("totalDefenses", allDefenses.size());
+			json.add("totalAssociations", languageModel.mergedAssociations.size());
 
 			// add used assets, attack steps and defences
 			// calculate from all simulations
@@ -473,32 +520,40 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 				usedAssetTypes.addAll(sim.usedAssetTypes);
 				usedAttackSteps.addAll(sim.usedAttackSteps);
 				usedDefenses.addAll(sim.usedDefenses);
+				usedAssociations.addAll(sim.usedAssociations);
 			}
 			json.add("totalUsedAssetTypes", new TreeSet<>(usedAssetTypes));
 			json.add("totalUsedAttackSteps", new TreeSet<>(usedAttackSteps));
 			json.add("totalUsedDefenses", new TreeSet<>(usedDefenses));
+			json.add("totalUsedAssociations", new TreeSet<>(usedAssociations));
 
 			// add untested assets, attack steps and defences
 			// calculate from all simulations
 			untestedAssetTypes = new HashSet<>(languageModel.assets.keySet());
 			untestedAttackSteps = new HashSet<>(allAttackSteps);
 			untestedDefenses = new HashSet<>(allDefenses);
+			untestedAssociations = new HashSet<>(languageModel.mergedAssociations.stream()
+					.map(Object::toString)
+					.collect(Collectors.toSet()));
 			for (Sim sim : simulations) {
 				untestedAssetTypes.removeAll(sim.usedAssetTypes);
 				untestedAttackSteps.removeAll(sim.usedAttackSteps);
 				untestedDefenses.removeAll(sim.usedDefenses);
+				untestedAssociations.removeAll(sim.usedAssociations);
 			}
 			json.add("totalUntestedAssetTypes", new TreeSet<>(untestedAssetTypes));
 			json.add("totalUntestedAttackSteps", new TreeSet<>(untestedAttackSteps));
 			json.add("totalUntestedDefenses", new TreeSet<>(untestedDefenses));
+			json.add("totalUntestedAssociations", new TreeSet<>(untestedAssociations));
 
 			// calculate <asset type|attack step|defence> coverage on language level
 			json.add("assetTypeCoverageLanguageLevel", calculateLanguageLevelCoverage(usedAssetTypes.size(), languageModel.assets.size()));
 			json.add("attackStepCoverageLanguageLevel", calculateLanguageLevelCoverage(usedAttackSteps.size(), usedAttackSteps.size() + untestedAttackSteps.size()));
 			json.add("defenseCoverageLanguageLevel", calculateLanguageLevelCoverage(usedDefenses.size(), usedDefenses.size() + untestedDefenses.size()));
+			json.add("associationCoverageLanguageLevel", calculateLanguageLevelCoverage(usedAssociations.size(), usedAssociations.size() + untestedAssociations.size()));
 
 			// store total number of language elements
-			int totalLanguageElements = languageModel.assets.size() + allAttackSteps.size() + allDefenses.size();
+			int totalLanguageElements = languageModel.assets.size() + allAttackSteps.size() + allDefenses.size() + languageModel.mergedAssociations.size();
 			json.add("totalLanguageElements", totalLanguageElements);
 
 			return json.toString();
@@ -553,9 +608,11 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			Set<String> usedAssetTypes = new HashSet<>();
 			Set<String> usedAttackSteps = new HashSet<>();
 			Set<String> usedDefenses = new HashSet<>();
+			Set<String> usedAssociations = new HashSet<>();
 			Set<String> untestedAssetTypes = new HashSet<>();
 			Set<String> untestedAttackSteps = new HashSet<>();
 			Set<String> untestedDefenses = new HashSet<>();
+			Set<String> untestedAssociations = new HashSet<>();
 
 			public Sim(String clsName, String mName) {
 				this.clsName = clsName;
