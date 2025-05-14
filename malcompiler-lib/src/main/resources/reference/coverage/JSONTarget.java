@@ -234,40 +234,6 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 		return merged;
 	}
 
-	/**
-	 * function to compute the used associations compared to the defined ones in the dsl
-	 * @return
-	 */
-	/*
-	private Set<LanguageModel.AssociationMetadata> computeUsedAssociations() {
-		Set<LanguageModel.AssociationMetadata> used = new HashSet<>();
-
-		for (Asset asset : Asset.allAssets) {
-			String assetType = asset.getClass().getSimpleName();
-
-			for (LanguageModel.AssociationMetadata assoc : languageModel.mergedAssociations) {
-				// Match only if this asset is the left side of the association
-				if (!assoc.leftAsset.equals(assetType)) continue;
-
-				try {
-					Set<Asset> linkedAssets = asset.getAssociatedAssets(assoc.associationName);
-
-					if (linkedAssets != null && !linkedAssets.isEmpty()) {
-						used.add(assoc);
-					}
-				} catch (Exception e) {
-					// This can happen if field name doesn't match exactly
-					System.out.printf("Warning: could not inspect field '%s' in asset '%s'%n", assoc.associationName, assetType);
-				}
-			}
-		}
-
-		return used;
-	}
-	 */
-
-
-
 	@Override
 	public void processCoverage() {
 		ModelKey key = new ModelKey();
@@ -555,6 +521,10 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			// store total number of language elements
 			int totalLanguageElements = languageModel.assets.size() + allAttackSteps.size() + allDefenses.size() + languageModel.mergedAssociations.size();
 			json.add("totalLanguageElements", totalLanguageElements);
+			int totalUsedLanguageElements = usedAssetTypes.size() + usedAttackSteps.size() + usedDefenses.size() + usedAssociations.size();
+			json.add("totalUsedLanguageElements", totalUsedLanguageElements);
+
+			json.add("languageElementsCoverageLanguageLevel", calculateLanguageLevelCoverage(totalUsedLanguageElements, totalLanguageElements));
 
 			return json.toString();
 		}

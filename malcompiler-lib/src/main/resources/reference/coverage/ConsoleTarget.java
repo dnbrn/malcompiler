@@ -1,16 +1,11 @@
 package core.coverage;
 
+import java.lang.reflect.Modifier;
 import java.math.BigInteger;
 import java.math.BigDecimal;
 import java.io.PrintStream;
 import java.lang.reflect.Field;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.Set;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.LinkedList;
-import java.util.HashSet;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.math.RoundingMode;
@@ -85,8 +80,129 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			streamAssetAttackSteps(assetClass).forEach(f -> metadata.assetAttackSteps.add(f.getName()));
 			streamAssetDefense(assetClass).forEach(f -> metadata.assetDefenses.add(f.getName()));
 
+			// copied from JSONTarget
+			// extract associations
+			for (Field field : assetClass.getFields()) {
+
+				// added to filter out inherited Asset.allAssets
+				if (Modifier.isStatic(field.getModifiers())) {
+					continue;
+				}
+
+				Class<?> fieldType = field.getType();
+
+				// only consider association fields
+				if (Asset.class.isAssignableFrom(fieldType)) {
+					// Single-valued association
+					LanguageModel.UnmergedAssociation assoc = new LanguageModel.UnmergedAssociation();
+					assoc.sourceAsset = assetName;
+					assoc.sourceField = field.getName();
+					assoc.sourceMultiplicity = "1";
+					assoc.targetAsset = fieldType.getSimpleName();
+
+					languageModel.allUnmergedAssociations.add(assoc);
+
+				} else if (Collection.class.isAssignableFrom(fieldType)) {
+					String signature = field.toGenericString();
+					String typeName = "UNKNOWN";
+
+					if (signature.contains("<") && signature.contains(">")) {
+						int start = signature.indexOf('<') + 1;
+						int end = signature.indexOf('>');
+						typeName = signature.substring(start, end).trim();
+
+						if (typeName.contains(".")) {
+							typeName = typeName.substring(typeName.lastIndexOf('.') + 1);
+						}
+					}
+
+					LanguageModel.UnmergedAssociation assoc = new LanguageModel.UnmergedAssociation();
+					assoc.sourceAsset = assetName;
+					assoc.sourceField = field.getName();
+					assoc.sourceMultiplicity = "*";
+					assoc.targetAsset = typeName;
+
+					languageModel.allUnmergedAssociations.add(assoc);
+				}
+			}
+
+			// store asset with corresponding attack steps and defences in language model
 			languageModel.assets.put(assetName, metadata);
 		}
+
+		// merge allUnmergedAssociations
+		languageModel.assets.values().forEach(m -> m.assetAssociations.clear());
+		Set<LanguageModel.AssociationMetadata> mergedAssociations =
+				mergeUnmergedAssociations(languageModel.allUnmergedAssociations);
+
+		// add associations to asset types in language model
+		for (LanguageModel.AssociationMetadata assoc : mergedAssociations) {
+			languageModel.assets.get(assoc.leftAsset).assetAssociations.add(assoc);
+		}
+		// add to language model in general
+		languageModel.mergedAssociations = mergedAssociations;
+	}
+
+	/**
+	 * function to merge extracted on-sided unmerged associations
+	 * @param unmerged associations
+	 * @return
+	 */
+	private Set<LanguageModel.AssociationMetadata> mergeUnmergedAssociations(Set<LanguageModel.UnmergedAssociation> unmerged) {
+		Map<String, List<LanguageModel.UnmergedAssociation>> grouped = new HashMap<>();
+
+		// Helper to create a bidirectional key (unordered asset pair)
+		for (LanguageModel.UnmergedAssociation ua : unmerged) {
+			String key = ua.sourceAsset.compareTo(ua.targetAsset) < 0
+					? ua.sourceAsset + "::" + ua.targetAsset
+					: ua.targetAsset + "::" + ua.sourceAsset;
+
+			grouped.computeIfAbsent(key, k -> new ArrayList<>()).add(ua);
+		}
+
+		Set<LanguageModel.AssociationMetadata> merged = new HashSet<>();
+
+		for (Map.Entry<String, List<LanguageModel.UnmergedAssociation>> entry : grouped.entrySet()) {
+			List<LanguageModel.UnmergedAssociation> pair = entry.getValue();
+
+			if (pair.size() == 2) {
+				// Found both sides of the association
+				LanguageModel.UnmergedAssociation a = pair.get(0);
+				LanguageModel.UnmergedAssociation b = pair.get(1);
+
+				LanguageModel.AssociationMetadata assoc = new LanguageModel.AssociationMetadata();
+				assoc.leftAsset = a.sourceAsset;
+				assoc.leftField = b.sourceField;
+				assoc.leftMultiplicity = b.sourceMultiplicity;
+				assoc.rightMultiplicity = a.sourceMultiplicity;
+				assoc.rightField = a.sourceField;
+				assoc.rightAsset = a.targetAsset;
+
+				merged.add(assoc);
+
+			} else if (pair.size() == 1) {
+				// only one side, hopefully won't happen
+				LanguageModel.UnmergedAssociation a = pair.get(0);
+
+				// debug information
+				System.out.println("");
+				System.out.println("Partial association: " + a.toString());
+				System.out.println("Only one side of the association found! Check if everything works as supposed to!");
+				System.out.println("");
+
+				LanguageModel.AssociationMetadata assoc = new LanguageModel.AssociationMetadata();
+				assoc.leftAsset = a.sourceAsset;
+				assoc.leftField = "?";
+				assoc.leftMultiplicity = "?";
+				assoc.rightMultiplicity = a.sourceMultiplicity;
+				assoc.rightField = a.sourceField;
+				assoc.rightAsset = a.targetAsset;
+
+				merged.add(assoc);
+			}
+		}
+
+		return merged;
 	}
 	
 	@Override
@@ -130,6 +246,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		Set<String> usedAssetTypes = new HashSet<>();
 		Set<String> usedAttackSteps = new HashSet<>();
 		Set<String> usedDefenses = new HashSet<>();
+		Set<String> usedAssociations = computeUsedAssociations();
 
 		for (Asset asset : Asset.allAssets) {
 			for (AttackStep step : getAttackSteps(asset)) {
@@ -155,7 +272,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 		// Simulation coverage = computeLocal(current, compromisedSteps);
 		Simulation sim = new Simulation(String.format("%s::%s", _classname, _testname), compromisedSteps, defenseState,
-				usedAssetTypes, usedAttackSteps, usedDefenses);
+				usedAssetTypes, usedAttackSteps, usedDefenses, usedAssociations);
 		List<Simulation> group = current.groups.computeIfAbsent(groupKey.hashCode(), s -> new ArrayList<Simulation>());
 
 		group.add(sim);
@@ -261,6 +378,39 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 
 	}
+
+	/**
+	 * function to dynamically compute the associations used in the model
+	 * @param languageModel
+	 * @return
+	 */
+	private Set<String> computeUsedAssociations() {
+		Set<String> used = new HashSet<>();
+
+		for (Asset asset : Asset.allAssets) {
+			String assetTypeName = asset.getClass().getSimpleName();
+
+			for (LanguageModel.AssociationMetadata assoc : languageModel.mergedAssociations) {
+
+				// only evaluate if asset is the left side of the association
+				if (!assoc.leftAsset.equals(assetTypeName)) continue;
+
+				try {
+					// asset-provided accessor
+					Set<Asset> associated = asset.getAssociatedAssets(assoc.rightField);
+
+					if (associated != null && !associated.isEmpty()) {
+						used.add(assoc.toString());
+					}
+				} catch (Exception e) {
+					System.out.printf("Warning: could not inspect association field '%s' in asset '%s'%n",
+							assoc.rightField, assetTypeName);
+				}
+			}
+		}
+
+		return used;
+	}
 	
 	/**
 	 * Computes coverage data based on the model represented by data and
@@ -351,23 +501,28 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		int totalDefenses = languageModel.assets.values().stream()
 				.mapToInt(a -> a.assetDefenses.size())
 				.sum();
+		int totalAssociations = languageModel.mergedAssociations.size();
 
-		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
+		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses + totalAssociations;
 
 		Set<String> usedAssetTypeNames = new HashSet<>();
 		Set<String> usedAttackStepNames = new HashSet<>();
 		Set<String> usedDefenseNames = new HashSet<>();
+		Set<String> usedAssociationNames = new HashSet<>();
 		for (List<Simulation> group : model.groups.values())
 			for (Simulation sim : group) {
 				usedAssetTypeNames.addAll(sim.usedAssetTypeNames);
 				usedAttackStepNames.addAll(sim.usedAttackStepNames);
 				usedDefenseNames.addAll(sim.usedDefenseNames);
+				usedAssociationNames.addAll(sim.usedAssociations);
 			}
 
 		int usedAssets = usedAssetTypeNames.size();
 		int usedAttackSteps = usedAttackStepNames.size();
 		int usedDefenses = usedDefenseNames.size();
-		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
+		int usedAssociations = usedAssociationNames.size();
+
+		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses + usedAssociations;
 
 		if (totalLanguageElements > 0) {
 			double fraction = (double) usedLanguageElements / totalLanguageElements;
@@ -395,22 +550,26 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		int totalDefenses = languageModel.assets.values().stream()
 				.mapToInt(a -> a.assetDefenses.size())
 				.sum();
+		int totalAssociations = languageModel.mergedAssociations.size();
 
-		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
+		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses + totalAssociations;
 
 		Set<String> usedAssetTypeNames = new HashSet<>();
 		Set<String> usedAttackStepNames = new HashSet<>();
 		Set<String> usedDefenseNames = new HashSet<>();
+		Set<String> usedAssociationNames = new HashSet<>();
 		for (Simulation sim : group) {
 			usedAssetTypeNames.addAll(sim.usedAssetTypeNames);
 			usedAttackStepNames.addAll(sim.usedAttackStepNames);
 			usedDefenseNames.addAll(sim.usedDefenseNames);
+			usedAssociationNames.addAll(sim.usedAssociations);
 		}
 
 		int usedAssets = usedAssetTypeNames.size();
 		int usedAttackSteps = usedAttackStepNames.size();
 		int usedDefenses = usedDefenseNames.size();
-		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
+		int usedAssociations = usedAssociationNames.size();
+		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses + usedAssociations;
 
 		if (totalLanguageElements > 0) {
 			double fraction = (double) usedLanguageElements / totalLanguageElements;
@@ -438,13 +597,15 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		int totalDefenses = languageModel.assets.values().stream()
 				.mapToInt(a -> a.assetDefenses.size())
 				.sum();
+		int totalAssociations = languageModel.mergedAssociations.size();
 
-		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
+		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses + totalAssociations;
 
 		int usedAssets = sim.usedAssetTypeNames.size();
 		int usedAttackSteps = sim.usedAttackStepNames.size();
 		int usedDefenses = sim.usedDefenseNames.size();
-		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
+		int usedAssociations = sim.usedAssociations.size();
+		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses + usedAssociations;
 
 		if (totalLanguageElements > 0) {
 			double fraction = (double) usedLanguageElements / totalLanguageElements;
@@ -473,10 +634,12 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		int totalDefenses = languageModel.assets.values().stream()
 				.mapToInt(a -> a.assetDefenses.size())
 				.sum();
+		int totalAssociations = languageModel.mergedAssociations.size();
 
 		int usedAssets = model.usedAssetTypes.size();
 		int usedAttackSteps = model.usedAttackSteps.size();
 		int usedDefenses = model.usedDefenses.size();
+		int usedAssociations = model.usedAssociations.size();
 
 		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
 				"Asset Types", usedAssets, totalAssets, (usedAssets * 100.0 / totalAssets)));
@@ -484,11 +647,20 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
 				"Attack Steps ", usedAttackSteps, totalAttackSteps, (usedAttackSteps * 100.0 / totalAttackSteps)));
 
-		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
-				"Defences", usedDefenses, totalDefenses, (usedDefenses * 100.0 / totalDefenses)));
+		if (totalDefenses > 0) {
+			_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+					"Defences", usedDefenses, totalDefenses, (usedDefenses * 100.0 / totalDefenses)));
+		} else { // avoid division by zero in case of no defences
+			_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+					"Defences", usedDefenses, totalDefenses, 100.0));
+		}
 
-		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses;
-		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses;
+		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
+				"Associations", usedAssociations, totalAssociations, (usedAssociations * 100.0 / totalAssociations)));
+
+
+		int totalLanguageElements = totalAssets + totalAttackSteps + totalDefenses + totalAssociations;
+		int usedLanguageElements = usedAssets + usedAttackSteps + usedDefenses + usedAssociations;
 
 		_out.println(String.format("\t%-17s [%5d/%5d] -> %6.2f%%",
 				"Language elements", usedLanguageElements, totalLanguageElements,
@@ -631,6 +803,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		public Set<String> usedAssetTypes = new HashSet<>();
 		public Set<String> usedAttackSteps = new HashSet<>();
 		public Set<String> usedDefenses = new HashSet<>();
+		public Set<String> usedAssociations = new HashSet<>();
 
 		public List<String> tests = new LinkedList<>();
 
@@ -674,6 +847,41 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 
 				assetSteps.put(asset.hashCode(), stepIds);
 			}
+
+			usedAssociations = computeUsedAssociations();
+		}
+
+		/**
+		 * function to dynamically compute the associations used in the model
+		 * @param languageModel
+		 * @return
+		 */
+		private Set<String> computeUsedAssociations() {
+			Set<String> used = new HashSet<>();
+
+			for (Asset asset : Asset.allAssets) {
+				String assetTypeName = asset.getClass().getSimpleName();
+
+				for (LanguageModel.AssociationMetadata assoc : languageModel.mergedAssociations) {
+
+					// only evaluate if asset is the left side of the association
+					if (!assoc.leftAsset.equals(assetTypeName)) continue;
+
+					try {
+						// asset-provided accessor
+						Set<Asset> associated = asset.getAssociatedAssets(assoc.rightField);
+
+						if (associated != null && !associated.isEmpty()) {
+							used.add(assoc.toString());
+						}
+					} catch (Exception e) {
+						System.out.printf("Warning: could not inspect association field '%s' in asset '%s'%n",
+								assoc.rightField, assetTypeName);
+					}
+				}
+			}
+
+			return used;
 		}
 
 		/**
@@ -713,15 +921,18 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		public final Set<String> usedAssetTypeNames;
 		public final Set<String> usedAttackStepNames;
 		public final Set<String> usedDefenseNames;
+		public final Set<String> usedAssociations;
 
 		public Simulation(String name, Set<Integer> compSteps, Integer defState,
-                      Set<String> usedAssets, Set<String> usedSteps, Set<String> usedDefs) {
+                      Set<String> usedAssets, Set<String> usedSteps, Set<String> usedDefs,
+						  Set<String> usedAssocs) {
 			this.name = name;
 			this.compromisedSteps = compSteps;
 			this.defenseState = defState;
 			this.usedAssetTypeNames = usedAssets;
 			this.usedAttackStepNames = usedSteps;
 			this.usedDefenseNames = usedDefs;
+			this.usedAssociations = usedAssocs;
     	}
 	}
 	
