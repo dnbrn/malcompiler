@@ -532,7 +532,6 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					"Language elements", usedLanguageElements, totalLanguageElements, percent));
 
 		} else {
-			// TODO evaluate this
 			_out.println(String.format("\t%-17s TOTAL = 0", "Language coverage"));
 		}
 	}
@@ -579,7 +578,6 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					"Language elements", usedLanguageElements, totalLanguageElements, percent));
 
 		} else {
-			// TODO evaluate this
 			_out.println(String.format("\t%-17s TOTAL = 0", "Language coverage"));
 		}
 	}
@@ -615,7 +613,6 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					"Language elements", usedLanguageElements, totalLanguageElements, percent));
 
 		} else {
-			// TODO evaluate this
 			_out.println(String.format("\t%-17s TOTAL = 0", "Language coverage"));
 		}
 	}
@@ -723,7 +720,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			// TODO
 			// potentially adjust percentage.doubleValue() to percentage.setScale(2, BigDecimal.ROUND_HALF_UP).doubleValue()
 			if (generateWarnings && percentage.doubleValue() < 99.99) {
-				warnings.add(String.format("Defence states coverage is only %.2f%%",
+				warnings.add(String.format("Defence states coverage for model is only %.2f%%",
 						percentage.doubleValue()));
 			}
 		} else {
@@ -750,7 +747,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 			// TODO
 			//potentially adjust wording
 			if (generateWarnings && percent < 99.99) {
-				warnings.add(String.format("%s coverage is only %.2f%%", coverageType, percent));
+				warnings.add(String.format("%s coverage for model is only %.2f%%", coverageType, percent));
 			}
 		} else {
 			_out.println(String.format("\t%-17s TOTAL = 0", coverageType));
