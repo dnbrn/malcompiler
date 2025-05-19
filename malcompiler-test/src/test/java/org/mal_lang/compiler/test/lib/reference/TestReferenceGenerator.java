@@ -165,7 +165,8 @@ public class TestReferenceGenerator extends JavaGeneratorTest {
             "CoverageExtension.java",
             "ConsoleTarget.java",
             "JSONTarget.java",
-            "LanguageModel.java");
+            "LanguageModel.java",
+            "CoverageCollector.java");
 
     var actualFiles = cDir.listFiles();
     assertEquals(

@@ -42,7 +42,7 @@ public class CoverageExtension implements AfterTestExecutionCallback,  BeforeTes
     public CoverageExtension() {
         if (_globalTarget == null) {
             // Override to change the global export target
-            _globalTarget = new JSONTarget("coverage.json"); 
+            _globalTarget = new JSONTarget("coverage.json");
         }
 
         _export = _globalTarget;

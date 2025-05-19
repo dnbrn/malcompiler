@@ -33,6 +33,13 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 	private String classname;
 	private String testname;
 
+	// information about crashed tests
+	private static boolean crashed = false;
+	private static boolean recover = false;
+	private static String crashMessage = null;
+	private Map<String, String> crashedTests = new HashMap<>();
+	private static boolean anySuccessfulTest = false;
+
 	public JSONTarget() {
 		out = null;
 	}
@@ -58,6 +65,7 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 	 */	
 	@Override
 	public void preprocess(ExtensionContext ctx) {
+
 		testname = ctx.getDisplayName();
 		testname = testname.substring(0, testname.indexOf('('));
 		classname = ctx.getParent().map(s -> s.getDisplayName()).orElse("Unknown");
@@ -236,6 +244,23 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 
 	@Override
 	public void processCoverage() {
+		if (crashed) {
+			crashed = false;
+			recover = true;
+			crashedTests.put(testname, crashMessage);
+			crashMessage = "";
+			return;
+		}
+		if (recover) {
+			recover = false;
+			return;
+		}
+
+		// mark successful test
+		if (!anySuccessfulTest) {
+			anySuccessfulTest = true;
+		}
+
 		ModelKey key = new ModelKey();
 		Model mdl = models.computeIfAbsent(key, s -> new Model());
 		mdl.storeCurrentState();
@@ -246,6 +271,11 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 		boolean first = true;
 
 		out.print('[');
+
+		// if no test was successful
+		if (!anySuccessfulTest) {
+			out.print(noSuccessfullTests());
+		}
 
 		for (Model mdl : models.values()) {
 			if (!first) {
@@ -282,6 +312,29 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			System.err.println(String.format("Failed to create file with name %s.", filename));
 			e.printStackTrace();
 		}
+	}
+
+	/**
+	 * function to notify JSONTarget that current test failed
+	 * important so that processCoverage isn't executed
+	 * @param e
+	 */
+	public static void markCrashed(Exception e) {
+		crashed = true;
+		crashMessage = e.toString();
+	}
+
+	/**
+	 * function to return output for .json file
+	 * in case no tests succeeded
+	 * @return returns info about crashes that happened
+	 */
+	public String noSuccessfullTests() {
+		JSONObject json = new JSONObject();
+		json.add("crashedTests", crashedTests.toString());
+		// crashedTests
+
+		return json.toString();
 	}
 
 	private class Model {
@@ -525,6 +578,10 @@ public class JSONTarget  extends CoverageExtension.ExportableTarget {
 			json.add("totalUsedLanguageElements", totalUsedLanguageElements);
 
 			json.add("languageElementsCoverageLanguageLevel", calculateLanguageLevelCoverage(totalUsedLanguageElements, totalLanguageElements));
+
+			// add potentially crashed tests
+			json.add("crashedTests", crashedTests.toString());
+			// crashedTests
 
 			return json.toString();
 		}

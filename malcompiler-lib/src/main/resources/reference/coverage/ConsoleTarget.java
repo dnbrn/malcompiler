@@ -39,6 +39,13 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	// language model
 	private LanguageModel languageModel;
 
+	// information about crashed tests
+	private static boolean crashed = false;
+	private static boolean recover = false;
+	private static String crashMessage = null;
+	private Map<String, String> crashedTests = new HashMap<>();
+	private static boolean anySuccessfulTest = false;
+
 	public ConsoleTarget() {
 		this(true, true, true);
 	}
@@ -67,6 +74,11 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	
 	@Override
 	public void setup() {
+		// added to see if it makes a difference
+		if (languageModel != null) {
+			return; // Already initialized
+		}
+
 		// create language model like in JSONTarget
 		Set<Class<? extends Asset>> assetTypes = getAllAssetTypesFromDSL();
 
@@ -215,6 +227,18 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	
 	@Override
 	public void processCoverage() {
+		if (crashed) {
+			crashed = false;
+			crashedTests.put(_testname, crashMessage);
+			crashMessage = "";
+			return;
+		}
+
+		// mark successful test
+		if (!anySuccessfulTest) {
+			anySuccessfulTest = true;
+		}
+
 		ModelKey modelKey = new ModelKey();
 		ModelData current = models.computeIfAbsent(modelKey, s -> new ModelData());
 
@@ -281,6 +305,11 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	
 	@Override
 	public void export() {
+		// if no test was successful
+		if (!anySuccessfulTest) {
+			noSuccessfullTests();
+		}
+
 		int id = 1;
 
 		// Don't print anything
@@ -371,7 +400,29 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 					_out.println("\t⚠️ " + warning);
 				}
 				warnings.clear();
+
+				// add failed tests
+				if (!crashedTests.isEmpty()) {
+					System.out.println("⚠️ " + "The following tests failed:");
+					for (Map.Entry<String, String> entry : crashedTests.entrySet()) {
+						System.out.println(entry.getKey() + ": ");
+						System.out.println("\t" + entry.getValue());
+					}
+				}
+			} else {
+				// add failed tests
+				if (!crashedTests.isEmpty()) {
+					_out.println();
+					printHeading("Warnings");
+
+					System.out.println("⚠️ " + "The following tests failed:");
+					for (Map.Entry<String, String> entry : crashedTests.entrySet()) {
+						System.out.println(entry.getKey() + ": ");
+						System.out.println("\t" + entry.getValue());
+					}
+				}
 			}
+
 
 			printLanguageCoverageSummary(model);
 		}
@@ -770,7 +821,35 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 		}
 		return "unknown";
 	}
-	
+
+	/**
+	 * function to tell ConsoleTarget that test crashed
+	 * @param e
+	 */
+	public static void logCrash(Exception e) {
+		crashed = true;
+		crashMessage = e.toString();
+
+		System.out.println("❌️Test crashed.");
+		System.out.println("");
+	}
+
+	/**
+	 * method to print out information about failed tests
+	 * in case no tests succeeded
+	 */
+	public void noSuccessfullTests() {
+		printHeading("Warning");
+		System.out.println("⚠️ " + "There were no successful tests!");
+		System.out.println("");
+		System.out.println("⚠️ " + "The following tests failed:");
+		for (Map.Entry<String, String> entry : crashedTests.entrySet()) {
+			System.out.println(entry.getKey() + ": ");
+			System.out.println("\t" + entry.getValue());
+		}
+		System.out.println("");
+	}
+
 	/**
 	 * Class for storing coverage information about a model. Each simulation 
 	 * result is stored inside a simulation group (see the groups field).	
@@ -909,7 +988,7 @@ public class ConsoleTarget extends CoverageExtension.ExportableTarget {
 	/**
 	 * Class for storing the model state after a simulation.
 	 */	
-	private class Simulation {
+	public static class Simulation {
 		public final String name;
 		public final Set<Integer> compromisedSteps;
 		public final Integer defenseState;
