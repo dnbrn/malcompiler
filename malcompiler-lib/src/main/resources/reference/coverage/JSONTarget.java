@@ -26,7 +26,7 @@ import core.coverage.LanguageModel;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
-public class JSONTarget  extends CoverageExtension.ExportableTarget {
+public class JSONTarget extends CoverageExtension.ExportableTarget {
 	public Map<ModelKey, Model> models = new HashMap<>();
 	private PrintStream out = null;
 
