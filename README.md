@@ -1,3 +1,7 @@
+# Disclaimer
+This is a fork of the malcompiler by [nicklashersen](https://github.com/nicklashersen/malcompiler).
+This malcompiler includes an enhanced coverage extension.
+
 # MAL (the Meta Attack Language)
 
 MAL is a language for designing cyber threat modeling languages for
